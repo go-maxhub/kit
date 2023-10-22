@@ -65,7 +65,7 @@ type Server struct {
 	// Starts 2 services on different ports, 8080 and 8081 if any others not provided in Server options.
 	parallelMode bool
 
-	// Loggers
+	// Loggers.
 	SlogLogger *slogcore.Logger
 	ZapLogger  *zapl.Logger
 
@@ -73,7 +73,7 @@ type Server struct {
 	fgprofServer *http.Handler
 	fgprofAddr   string
 
-	// Before and After funcs
+	// Before and After funcs.
 	beforeStart []func() error
 	afterStart  []func() error
 	afterStop   []func() error
