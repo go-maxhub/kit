@@ -55,10 +55,12 @@ type Server struct {
 	// Starts 2 services on different ports, 8080 and 8081 if any others not provided in Server options.
 	parallelRoutes bool
 
+	// Servers
 	GinServer  *gincore.Engine
 	ChiServer  *chicore.Mux
 	GRPCServer *grpccore.Server
 
+	// Loggers
 	SlogLogger *slogcore.Logger
 	ZapLogger  *zapl.Logger
 
