@@ -3,6 +3,8 @@ package main
 import (
 	"log"
 
+	"github.com/go-chi/chi/v5/middleware"
+
 	mcs "kit/server"
 
 	"kit/server/logger/zap"
@@ -22,7 +24,11 @@ func main() {
 	)
 
 	svc.ZapLogger.Info("started")
-	svc.ChiServer.Middlewares()
+
+	svc.ChiServer.Use(
+		middleware.Recoverer,
+		middleware.NoCache,
+	)
 
 	if err := svc.Start(); err != nil {
 		log.Fatal(err)
