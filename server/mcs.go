@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	slogcore "log/slog"
+
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 	"golang.org/x/sync/errgroup"
@@ -22,7 +24,6 @@ import (
 	zapl "go.uber.org/zap"
 	grpccore "google.golang.org/grpc"
 	pb "google.golang.org/grpc/examples/features/proto/echo"
-	slogcore "log/slog"
 
 	"kit/server/logger/slog"
 	"kit/server/logger/zap"
