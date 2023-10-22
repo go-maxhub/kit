@@ -61,6 +61,12 @@ type Server struct {
 
 	SlogLogger *slogcore.Logger
 	ZapLogger  *zapl.Logger
+
+	// Before and After funcs
+	beforeStart []func() error
+	afterStart  []func() error
+	afterStop   []func() error
+	beforeStop  []func() error
 }
 
 func New(options ...func(*Server)) *Server {
@@ -87,6 +93,15 @@ func (s *Server) Start() error {
 	l.Debug("Starting service...")
 
 	rootCtx := context.Background()
+
+	if len(s.beforeStart) > 0 {
+		for _, fn := range s.beforeStart {
+			if err := fn(); err != nil {
+				s.ZapLogger.Error("before start func", zapl.Error(err))
+			}
+		}
+	}
+
 	ctx, cancel := signal.NotifyContext(rootCtx, os.Interrupt)
 	defer cancel()
 
@@ -230,8 +245,21 @@ func (s *Server) Start() error {
 
 	g.Go(func() error {
 		// Guaranteed way to kill application.
+		if len(s.beforeStop) > 0 {
+			for _, fn := range s.beforeStop {
+				if err := fn(); err != nil {
+					s.ZapLogger.Error("before stop func", zapl.Error(err))
+				}
+			}
+		}
 		<-ctx.Done()
-
+		if len(s.afterStop) > 0 {
+			for _, fn := range s.afterStop {
+				if err := fn(); err != nil {
+					s.ZapLogger.Error("after stop func", zapl.Error(err))
+				}
+			}
+		}
 		// Context is canceled, giving application time to shut down gracefully.
 		l.Warn("Waiting for application shutdown")
 		time.Sleep(time.Second * 5)
@@ -241,6 +269,13 @@ func (s *Server) Start() error {
 		return nil
 	})
 
+	if len(s.afterStart) > 0 {
+		for _, fn := range s.afterStart {
+			if err := fn(); err != nil {
+				s.ZapLogger.Error("after start func", zapl.Error(err))
+			}
+		}
+	}
 	return g.Wait()
 }
 
@@ -251,6 +286,17 @@ func WithServerPort(port string) func(*Server) {
 			s.port = port
 		default:
 			s.port = "8080"
+		}
+	}
+}
+
+func WithGRPCServerPort(port string) func(*Server) {
+	return func(s *Server) {
+		switch {
+		case port != "":
+			s.grpcPort = port
+		default:
+			s.port = "8081"
 		}
 	}
 }
@@ -315,5 +361,29 @@ func WithGRPCServer(cfg grpc.Config) func(*Server) {
 		default:
 			s.GRPCServer = cfg.NewDefaultGRPCServer()
 		}
+	}
+}
+
+func WithBeforeStart(funcs []func() error) func(*Server) {
+	return func(s *Server) {
+		s.beforeStart = funcs
+	}
+}
+
+func WithAfterStart(funcs []func() error) func(*Server) {
+	return func(s *Server) {
+		s.afterStart = funcs
+	}
+}
+
+func WithAfterStop(funcs []func() error) func(*Server) {
+	return func(s *Server) {
+		s.afterStop = funcs
+	}
+}
+
+func WithBeforeStop(funcs []func() error) func(*Server) {
+	return func(s *Server) {
+		s.beforeStop = funcs
 	}
 }

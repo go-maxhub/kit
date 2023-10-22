@@ -23,15 +23,14 @@ func main() {
 		}),
 	)
 
-	svc.ZapLogger.Info("started")
-
 	svc.ChiServer.Use(
 		middleware.Recoverer,
 		middleware.NoCache,
 	)
 
+	svc.ZapLogger.Info("Describe your server logic down here ↓↓↓")
+
 	if err := svc.Start(); err != nil {
 		log.Fatal(err)
 	}
-
 }
