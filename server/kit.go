@@ -41,6 +41,7 @@ const (
 	fgprofUrl         = "/debug/fgprof"
 )
 
+// mixHTTPAndGRPC configures mixed http and grpc handler.
 func mixHTTPAndGRPC(httpHandler http.Handler, grpcHandler *grpccore.Server) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.ProtoMajor == 2 && strings.HasPrefix(r.Header.Get("content-type"), grpcHeader) {
@@ -51,6 +52,7 @@ func mixHTTPAndGRPC(httpHandler http.Handler, grpcHandler *grpccore.Server) http
 	})
 }
 
+// Server describes all services configurations, must be executed with Start.
 type Server struct {
 	// !ATTENTION! Options must be set before Start.
 	httpAddr  string
@@ -78,6 +80,7 @@ type Server struct {
 	beforeStop  []func() error
 }
 
+// New is base constructor function to create service with options, but won't start it without Start.
 func New(options ...func(*Server)) *Server {
 	srv := &Server{}
 	for _, o := range options {
@@ -90,6 +93,7 @@ type echoServer struct {
 	pb.UnimplementedEchoServer
 }
 
+// defaultConfig sets Server struct default values for not provided options.
 func (s *Server) defaultConfig() {
 	if s.httpAddr == "" {
 		s.httpAddr = defaultHTTPAddr
@@ -102,6 +106,7 @@ func (s *Server) defaultConfig() {
 	}
 }
 
+// Start runs servers with provided options.
 func (s *Server) Start() error {
 	s.defaultConfig()
 
@@ -418,24 +423,28 @@ func WithFgprofServer(cfg fgprof.Config) func(*Server) {
 	}
 }
 
+// WithBeforeStart executes functions before servers start.
 func WithBeforeStart(funcs []func() error) func(*Server) {
 	return func(s *Server) {
 		s.beforeStart = funcs
 	}
 }
 
+// WithAfterStart executes functions after servers start.
 func WithAfterStart(funcs []func() error) func(*Server) {
 	return func(s *Server) {
 		s.afterStart = funcs
 	}
 }
 
+// WithAfterStop executes functions after servers stop.
 func WithAfterStop(funcs []func() error) func(*Server) {
 	return func(s *Server) {
 		s.afterStop = funcs
 	}
 }
 
+// WithBeforeStop executes functions before servers stop.
 func WithBeforeStop(funcs []func() error) func(*Server) {
 	return func(s *Server) {
 		s.beforeStop = funcs
