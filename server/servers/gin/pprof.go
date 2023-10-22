@@ -1,4 +1,4 @@
-package ginprofiler
+package gin
 
 //import (
 //	"github.com/gin-contrib/pprof"

@@ -1,4 +1,4 @@
-package mcs
+package kit
 
 import (
 	"context"
@@ -61,7 +61,7 @@ type Server struct {
 	GRPCServer *grpccore.Server
 
 	// Starts 2 services on different ports, 8080 and 8081 if any others not provided in Server options.
-	parallelRoutes bool
+	parallelMode bool
 
 	// Loggers
 	SlogLogger *slogcore.Logger
@@ -139,7 +139,7 @@ func (s *Server) Start() error {
 	)
 
 	switch {
-	case s.ChiServer != &chicore.Mux{} && s.GRPCServer != &grpccore.Server{} && !s.parallelRoutes:
+	case s.ChiServer != &chicore.Mux{} && s.GRPCServer != &grpccore.Server{} && !s.parallelMode:
 		l.Debug("Initialized chi and grpc servers, not parallel mode")
 		lis, err := net.Listen("tcp", s.grpcAddr)
 		if err != nil {
@@ -165,7 +165,7 @@ func (s *Server) Start() error {
 			}
 			return nil
 		})
-	case s.GinServer != &gincore.Engine{} && s.GRPCServer != &grpccore.Server{} && !s.parallelRoutes:
+	case s.GinServer != &gincore.Engine{} && s.GRPCServer != &grpccore.Server{} && !s.parallelMode:
 		l.Debug("Initialized gin and grpc servers, not parallel mode")
 		lis, err := net.Listen("tcp", s.grpcAddr)
 		if err != nil {
@@ -188,7 +188,7 @@ func (s *Server) Start() error {
 			return nil
 		})
 
-	case s.ChiServer != &chicore.Mux{} && s.GRPCServer != &grpccore.Server{} && s.parallelRoutes:
+	case s.ChiServer != &chicore.Mux{} && s.GRPCServer != &grpccore.Server{} && s.parallelMode:
 		l.Debug("Initialized chi and grpc servers, parallel mode")
 		grpc_health_v1.RegisterHealthServer(s.GRPCServer, health.NewServer())
 		pb.RegisterEchoServer(s.GRPCServer, &echoServer{})
@@ -208,7 +208,7 @@ func (s *Server) Start() error {
 			}
 			return nil
 		})
-	case s.GinServer != &gincore.Engine{} && s.GRPCServer != &grpccore.Server{} && s.parallelRoutes:
+	case s.GinServer != &gincore.Engine{} && s.GRPCServer != &grpccore.Server{} && s.parallelMode:
 		l.Debug("Initialized gin and grpc servers, parallel mode")
 		grpc_health_v1.RegisterHealthServer(s.GRPCServer, health.NewServer())
 		pb.RegisterEchoServer(s.GRPCServer, &echoServer{})
@@ -309,28 +309,38 @@ func (s *Server) Start() error {
 	return g.Wait()
 }
 
-func WithServerPort(port string) func(*Server) {
+// WithHTTPServerPort sets provided port to http server.
+func WithHTTPServerPort(port string) func(*Server) {
 	return func(s *Server) {
 		switch {
 		case port == "":
-			panic("http httpAddr not defined")
+			panic("http port evaluated, but not defined")
 		default:
 			s.httpAddr = "0.0.0.0:" + port
 		}
 	}
 }
 
+// WithGRPCServerPort sets provided port to grpc server.
 func WithGRPCServerPort(port string) func(*Server) {
 	return func(s *Server) {
 		switch {
 		case port == "":
-			panic("grpc httpAddr not defined")
+			panic("grpc port evaluated, but not defined")
 		default:
 			s.grpcAddr = "0.0.0.0:" + port
 		}
 	}
 }
 
+// WithParallelMode sets http and grpc servers to bind on one port and segregate requests by headers.
+func WithParallelMode() func(*Server) {
+	return func(s *Server) {
+		s.parallelMode = true
+	}
+}
+
+// WithZapLogger provides uber/zap logger instance which can be used in custom logic before Start.
 func WithZapLogger(cfg zap.Config) func(*Server) {
 	return func(s *Server) {
 		switch {
@@ -344,6 +354,7 @@ func WithZapLogger(cfg zap.Config) func(*Server) {
 	}
 }
 
+// WithSlogLogger provides log/slog logger instance which can be used in custom logic before Start.
 func WithSlogLogger(cfg slog.Config) func(*Server) {
 	return func(s *Server) {
 		switch {
@@ -359,6 +370,7 @@ func WithSlogLogger(cfg slog.Config) func(*Server) {
 	}
 }
 
+// WithGinServer provides gin http server and runs it after Start.
 func WithGinServer(cfg gin.Config) func(*Server) {
 	return func(s *Server) {
 		switch {
@@ -372,6 +384,7 @@ func WithGinServer(cfg gin.Config) func(*Server) {
 	}
 }
 
+// WithChiServer provides chi http server and runs it after Start.
 func WithChiServer(cfg chi.Config) func(*Server) {
 	return func(s *Server) {
 		switch {
@@ -383,6 +396,7 @@ func WithChiServer(cfg chi.Config) func(*Server) {
 	}
 }
 
+// WithGRPCServer provides grpc server and runs it after Start.
 func WithGRPCServer(cfg grpc.Config) func(*Server) {
 	return func(s *Server) {
 		switch {
@@ -394,6 +408,7 @@ func WithGRPCServer(cfg grpc.Config) func(*Server) {
 	}
 }
 
+// WithFgprofServer provides http server with fgprof handler on 6060 port(by default) and runs it after Start.
 func WithFgprofServer(cfg fgprof.Config) func(*Server) {
 	return func(s *Server) {
 		if cfg.Port != "" {
