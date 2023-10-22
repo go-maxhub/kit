@@ -48,6 +48,7 @@ func mixHTTPAndGRPC(httpHandler http.Handler, grpcHandler *grpccore.Server) http
 }
 
 type Server struct {
+	// !ATTENTION! Options must be set before Start.
 	port     string
 	grpcPort string
 

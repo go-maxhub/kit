@@ -1,11 +1,11 @@
 package main
 
 import (
-	"kit/server/logger/zap"
 	"log"
 
 	mcs "kit/server"
 
+	"kit/server/logger/zap"
 	"kit/server/servers/chi"
 	"kit/server/servers/grpc"
 )
