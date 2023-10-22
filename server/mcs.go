@@ -34,6 +34,8 @@ import (
 const (
 	httpHostPort = "0.0.0.0:8080"
 	grpcHostPort = "0.0.0.0:8081"
+	httpPort     = "8080"
+	grpcPort     = "8081"
 	grpcHeader   = "application/grpc"
 )
 
@@ -287,7 +289,7 @@ func WithServerPort(port string) func(*Server) {
 		case port != "":
 			s.port = port
 		default:
-			s.port = "8080"
+			s.port = httpPort
 		}
 	}
 }
@@ -298,7 +300,7 @@ func WithGRPCServerPort(port string) func(*Server) {
 		case port != "":
 			s.grpcPort = port
 		default:
-			s.port = "8081"
+			s.port = grpcPort
 		}
 	}
 }
