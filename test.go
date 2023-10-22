@@ -1,11 +1,11 @@
 package main
 
 import (
+	"kit/server/logger/zap"
 	"log"
 
 	mcs "kit/server"
 
-	"kit/server/logger/slog"
 	"kit/server/servers/chi"
 	"kit/server/servers/grpc"
 )
@@ -16,12 +16,16 @@ func main() {
 			Default: true,
 		}),
 		mcs.WithGRPCServer(grpc.Config{Default: true}),
-		mcs.WithSlogLogger(slog.Config{
-			JSON: true,
+		mcs.WithZapLogger(zap.Config{
+			Development: true,
 		}),
 	)
+
+	svc.ZapLogger.Info("started")
+	svc.ChiServer.Middlewares()
 
 	if err := svc.Start(); err != nil {
 		log.Fatal(err)
 	}
+
 }

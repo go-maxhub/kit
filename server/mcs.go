@@ -22,6 +22,7 @@ import (
 	zapl "go.uber.org/zap"
 	grpccore "google.golang.org/grpc"
 	pb "google.golang.org/grpc/examples/features/proto/echo"
+	slogcore "log/slog"
 
 	"kit/server/logger/slog"
 	"kit/server/logger/zap"
@@ -53,11 +54,12 @@ type Server struct {
 	// Starts 2 services on different ports, 8080 and 8081 if any others not provided in Server options.
 	parallelRoutes bool
 
-	ginServer  *gincore.Engine
-	chiServer  *chicore.Mux
-	grpcServer *grpccore.Server
+	GinServer  *gincore.Engine
+	ChiServer  *chicore.Mux
+	GRPCServer *grpccore.Server
 
-	logger any
+	SlogLogger *slogcore.Logger
+	ZapLogger  *zapl.Logger
 }
 
 func New(options ...func(*Server)) *Server {
@@ -101,7 +103,7 @@ func (s *Server) Start() error {
 	l.Debug("Initialized with ports", zapl.String("http.port", port), zapl.String("grpc.port", grpcPort))
 
 	switch {
-	case s.chiServer != &chicore.Mux{} && s.grpcServer != &grpccore.Server{} && !s.parallelRoutes:
+	case s.ChiServer != &chicore.Mux{} && s.GRPCServer != &grpccore.Server{} && !s.parallelRoutes:
 		l.Debug("Initialized chi and grpc servers, not parallel mode")
 		lis, err := net.Listen("tcp", grpcPort)
 		if err != nil {
@@ -109,9 +111,9 @@ func (s *Server) Start() error {
 		}
 		g.Go(func() error {
 			defer l.Info("Server stopped.")
-			grpc_health_v1.RegisterHealthServer(s.grpcServer, health.NewServer())
-			pb.RegisterEchoServer(s.grpcServer, &echoServer{})
-			if err := s.grpcServer.Serve(lis); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			grpc_health_v1.RegisterHealthServer(s.GRPCServer, health.NewServer())
+			pb.RegisterEchoServer(s.GRPCServer, &echoServer{})
+			if err := s.GRPCServer.Serve(lis); err != nil && !errors.Is(err, http.ErrServerClosed) {
 				log.Fatal("start grpc server", err)
 			}
 			l.Debug("Init chi and grpc")
@@ -119,15 +121,15 @@ func (s *Server) Start() error {
 		})
 		g.Go(func() error {
 			defer l.Info("Server stopped.")
-			s.chiServer.Get("/health", func(w http.ResponseWriter, r *http.Request) {
+			s.ChiServer.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 				w.Write([]byte("OK"))
 			})
-			if err := http.ListenAndServe(port, s.chiServer); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			if err := http.ListenAndServe(port, s.ChiServer); err != nil && !errors.Is(err, http.ErrServerClosed) {
 				log.Fatal("start chi server", err)
 			}
 			return nil
 		})
-	case s.ginServer != &gincore.Engine{} && s.grpcServer != &grpccore.Server{} && !s.parallelRoutes:
+	case s.GinServer != &gincore.Engine{} && s.GRPCServer != &grpccore.Server{} && !s.parallelRoutes:
 		l.Debug("Initialized gin and grpc servers, not parallel mode")
 		lis, err := net.Listen("tcp", grpcPort)
 		if err != nil {
@@ -135,26 +137,26 @@ func (s *Server) Start() error {
 		}
 		g.Go(func() error {
 			defer l.Info("Server stopped.")
-			grpc_health_v1.RegisterHealthServer(s.grpcServer, health.NewServer())
-			pb.RegisterEchoServer(s.grpcServer, &echoServer{})
-			if err := s.grpcServer.Serve(lis); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			grpc_health_v1.RegisterHealthServer(s.GRPCServer, health.NewServer())
+			pb.RegisterEchoServer(s.GRPCServer, &echoServer{})
+			if err := s.GRPCServer.Serve(lis); err != nil && !errors.Is(err, http.ErrServerClosed) {
 				log.Fatal("start grpc server", err)
 			}
 			return nil
 		})
 		g.Go(func() error {
 			defer l.Info("Server stopped.")
-			if err := s.ginServer.Run(port); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			if err := s.GinServer.Run(port); err != nil && !errors.Is(err, http.ErrServerClosed) {
 				log.Fatal("start gin server", err)
 			}
 			return nil
 		})
 
-	case s.chiServer != &chicore.Mux{} && s.grpcServer != &grpccore.Server{} && s.parallelRoutes:
+	case s.ChiServer != &chicore.Mux{} && s.GRPCServer != &grpccore.Server{} && s.parallelRoutes:
 		l.Debug("Initialized chi and grpc servers, parallel mode")
-		grpc_health_v1.RegisterHealthServer(s.grpcServer, health.NewServer())
-		pb.RegisterEchoServer(s.grpcServer, &echoServer{})
-		mh := mixHTTPAndGRPC(s.chiServer, s.grpcServer)
+		grpc_health_v1.RegisterHealthServer(s.GRPCServer, health.NewServer())
+		pb.RegisterEchoServer(s.GRPCServer, &echoServer{})
+		mh := mixHTTPAndGRPC(s.ChiServer, s.GRPCServer)
 		http2Server := &http2.Server{}
 		http1Server := &http.Server{Handler: h2c.NewHandler(mh, http2Server)}
 		lis, err := net.Listen("tcp", port)
@@ -163,18 +165,18 @@ func (s *Server) Start() error {
 		}
 		g.Go(func() error {
 			defer l.Info("Server stopped.")
-			grpc_health_v1.RegisterHealthServer(s.grpcServer, health.NewServer())
-			pb.RegisterEchoServer(s.grpcServer, &echoServer{})
+			grpc_health_v1.RegisterHealthServer(s.GRPCServer, health.NewServer())
+			pb.RegisterEchoServer(s.GRPCServer, &echoServer{})
 			if err := http1Server.Serve(lis); err != nil && !errors.Is(err, http.ErrServerClosed) {
 				log.Fatal("start chi and grpc server", err)
 			}
 			return nil
 		})
-	case s.ginServer != &gincore.Engine{} && s.grpcServer != &grpccore.Server{} && s.parallelRoutes:
+	case s.GinServer != &gincore.Engine{} && s.GRPCServer != &grpccore.Server{} && s.parallelRoutes:
 		l.Debug("Initialized gin and grpc servers, parallel mode")
-		grpc_health_v1.RegisterHealthServer(s.grpcServer, health.NewServer())
-		pb.RegisterEchoServer(s.grpcServer, &echoServer{})
-		mh := mixHTTPAndGRPC(s.ginServer, s.grpcServer)
+		grpc_health_v1.RegisterHealthServer(s.GRPCServer, health.NewServer())
+		pb.RegisterEchoServer(s.GRPCServer, &echoServer{})
+		mh := mixHTTPAndGRPC(s.GinServer, s.GRPCServer)
 		http2Server := &http2.Server{}
 		http1Server := &http.Server{Handler: h2c.NewHandler(mh, http2Server)}
 		lis, err := net.Listen("tcp", port)
@@ -188,7 +190,7 @@ func (s *Server) Start() error {
 			}
 			return nil
 		})
-	case s.grpcServer != &grpccore.Server{}:
+	case s.GRPCServer != &grpccore.Server{}:
 		l.Debug("Initialized grpc server")
 		lis, err := net.Listen("tcp", grpcPort)
 		if err != nil {
@@ -196,27 +198,27 @@ func (s *Server) Start() error {
 		}
 		g.Go(func() error {
 			defer l.Info("Server stopped.")
-			grpc_health_v1.RegisterHealthServer(s.grpcServer, health.NewServer())
-			pb.RegisterEchoServer(s.grpcServer, &echoServer{})
-			if err := s.grpcServer.Serve(lis); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			grpc_health_v1.RegisterHealthServer(s.GRPCServer, health.NewServer())
+			pb.RegisterEchoServer(s.GRPCServer, &echoServer{})
+			if err := s.GRPCServer.Serve(lis); err != nil && !errors.Is(err, http.ErrServerClosed) {
 				log.Fatal("start grpc server", err)
 			}
 			return nil
 		})
-	case s.ginServer != &gincore.Engine{}:
+	case s.GinServer != &gincore.Engine{}:
 		l.Debug("Initialized gin server")
 		g.Go(func() error {
 			defer l.Info("Server stopped.")
-			if err := s.ginServer.Run(port); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			if err := s.GinServer.Run(port); err != nil && !errors.Is(err, http.ErrServerClosed) {
 				log.Fatal("start gin server", err)
 			}
 			return nil
 		})
-	case s.chiServer != &chicore.Mux{}:
+	case s.ChiServer != &chicore.Mux{}:
 		l.Debug("Initialized chi server")
 		g.Go(func() error {
 			defer l.Info("Server stopped.")
-			if err := http.ListenAndServe(port, s.chiServer); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			if err := http.ListenAndServe(port, s.ChiServer); err != nil && !errors.Is(err, http.ErrServerClosed) {
 				log.Fatal("start chi server", err)
 			}
 			return nil
@@ -256,11 +258,11 @@ func WithZapLogger(cfg zap.Config) func(*Server) {
 	return func(s *Server) {
 		switch {
 		case cfg.Development:
-			s.logger = cfg.NewDevelopmentLogger()
+			s.ZapLogger = cfg.NewDevelopmentLogger()
 		case cfg.Production:
-			s.logger = cfg.NewProductionLogger()
+			s.ZapLogger = cfg.NewProductionLogger()
 		default:
-			s.logger = cfg.NewProductionLogger()
+			s.ZapLogger = cfg.NewProductionLogger()
 		}
 	}
 }
@@ -269,13 +271,13 @@ func WithSlogLogger(cfg slog.Config) func(*Server) {
 	return func(s *Server) {
 		switch {
 		case cfg.Default:
-			s.logger = cfg.NewDefaultLogger()
+			s.SlogLogger = cfg.NewDefaultLogger()
 		case cfg.JSON:
-			s.logger = cfg.NewJSONLogger()
+			s.SlogLogger = cfg.NewJSONLogger()
 		case cfg.Text:
-			s.logger = cfg.NewJSONLogger()
+			s.SlogLogger = cfg.NewJSONLogger()
 		default:
-			s.logger = cfg.NewJSONLogger()
+			s.SlogLogger = cfg.NewJSONLogger()
 		}
 	}
 }
@@ -284,11 +286,11 @@ func WithGinServer(cfg gin.Config) func(*Server) {
 	return func(s *Server) {
 		switch {
 		case cfg.Blank:
-			s.ginServer = cfg.NewBlankGin()
+			s.GinServer = cfg.NewBlankGin()
 		case cfg.Default:
-			s.ginServer = cfg.NewDefaultGin()
+			s.GinServer = cfg.NewDefaultGin()
 		default:
-			s.ginServer = cfg.NewDefaultGin()
+			s.GinServer = cfg.NewDefaultGin()
 		}
 	}
 }
@@ -297,9 +299,9 @@ func WithChiServer(cfg chi.Config) func(*Server) {
 	return func(s *Server) {
 		switch {
 		case cfg.Default:
-			s.chiServer = cfg.NewDefaultChi()
+			s.ChiServer = cfg.NewDefaultChi()
 		default:
-			s.chiServer = cfg.NewDefaultChi()
+			s.ChiServer = cfg.NewDefaultChi()
 		}
 	}
 }
@@ -308,9 +310,9 @@ func WithGRPCServer(cfg grpc.Config) func(*Server) {
 	return func(s *Server) {
 		switch {
 		case cfg.Default:
-			s.grpcServer = cfg.NewDefaultGRPCServer()
+			s.GRPCServer = cfg.NewDefaultGRPCServer()
 		default:
-			s.grpcServer = cfg.NewDefaultGRPCServer()
+			s.GRPCServer = cfg.NewDefaultGRPCServer()
 		}
 	}
 }
