@@ -28,16 +28,17 @@ import (
 	"kit/server/logger/slog"
 	"kit/server/logger/zap"
 	"kit/server/servers/chi"
+	"kit/server/servers/fgprof"
 	"kit/server/servers/gin"
 	"kit/server/servers/grpc"
 )
 
 const (
-	httpHostPort = "0.0.0.0:8080"
-	grpcHostPort = "0.0.0.0:8081"
-	httpPort     = "8080"
-	grpcPort     = "8081"
-	grpcHeader   = "application/grpc"
+	defaultHTTPAddr   = "0.0.0.0:8080"
+	defaultGRPCAddr   = "0.0.0.0:8081"
+	grpcHeader        = "application/grpc"
+	DefaultFgrpofAddr = "0.0.0.0:6060"
+	fgprofUrl         = "/debug/fgprof"
 )
 
 func mixHTTPAndGRPC(httpHandler http.Handler, grpcHandler *grpccore.Server) http.Handler {
@@ -52,20 +53,23 @@ func mixHTTPAndGRPC(httpHandler http.Handler, grpcHandler *grpccore.Server) http
 
 type Server struct {
 	// !ATTENTION! Options must be set before Start.
-	port     string
-	grpcPort string
+	httpAddr  string
+	GinServer *gincore.Engine
+	ChiServer *chicore.Mux
+
+	grpcAddr   string
+	GRPCServer *grpccore.Server
 
 	// Starts 2 services on different ports, 8080 and 8081 if any others not provided in Server options.
 	parallelRoutes bool
 
-	// Servers
-	GinServer  *gincore.Engine
-	ChiServer  *chicore.Mux
-	GRPCServer *grpccore.Server
-
 	// Loggers
 	SlogLogger *slogcore.Logger
 	ZapLogger  *zapl.Logger
+
+	// Metrics
+	fgprofServer *http.Handler
+	fgprofAddr   string
 
 	// Before and After funcs
 	beforeStart []func() error
@@ -86,11 +90,26 @@ type echoServer struct {
 	pb.UnimplementedEchoServer
 }
 
+func (s *Server) defaultConfig() {
+	if s.httpAddr == "" {
+		s.httpAddr = defaultHTTPAddr
+	}
+	if s.grpcAddr == "" {
+		s.grpcAddr = defaultGRPCAddr
+	}
+	if s.fgprofAddr == "" {
+		s.fgprofAddr = DefaultFgrpofAddr
+	}
+}
+
 func (s *Server) Start() error {
+	s.defaultConfig()
+
 	l, err := zapl.NewDevelopment(
 		zapl.WithCaller(true),
 		zapl.AddStacktrace(zapl.InfoLevel),
 	)
+
 	if err != nil {
 		panic(err)
 	}
@@ -113,20 +132,16 @@ func (s *Server) Start() error {
 	l.Debug("Starting errgroup...")
 	g, ctx := errgroup.WithContext(ctx)
 
-	port := httpHostPort
-	if s.port != "" {
-		port = "0.0.0.0:" + s.port
-	}
-	grpcPort := grpcHostPort
-	if s.grpcPort != "" {
-		port = "0.0.0.0:" + s.grpcPort
-	}
-	l.Debug("Initialized with ports", zapl.String("http.port", port), zapl.String("grpc.port", grpcPort))
+	l.Debug("Initialized with ports",
+		zapl.String("http.httpAddr", s.httpAddr),
+		zapl.String("grpc.httpAddr", s.grpcAddr),
+		zapl.String("fgprof.httpAddr", s.fgprofAddr),
+	)
 
 	switch {
 	case s.ChiServer != &chicore.Mux{} && s.GRPCServer != &grpccore.Server{} && !s.parallelRoutes:
 		l.Debug("Initialized chi and grpc servers, not parallel mode")
-		lis, err := net.Listen("tcp", grpcPort)
+		lis, err := net.Listen("tcp", s.grpcAddr)
 		if err != nil {
 			panic(err)
 		}
@@ -145,14 +160,14 @@ func (s *Server) Start() error {
 			s.ChiServer.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 				w.Write([]byte("OK"))
 			})
-			if err := http.ListenAndServe(port, s.ChiServer); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			if err := http.ListenAndServe(s.httpAddr, s.ChiServer); err != nil && !errors.Is(err, http.ErrServerClosed) {
 				log.Fatal("start chi server", err)
 			}
 			return nil
 		})
 	case s.GinServer != &gincore.Engine{} && s.GRPCServer != &grpccore.Server{} && !s.parallelRoutes:
 		l.Debug("Initialized gin and grpc servers, not parallel mode")
-		lis, err := net.Listen("tcp", grpcPort)
+		lis, err := net.Listen("tcp", s.grpcAddr)
 		if err != nil {
 			panic(err)
 		}
@@ -167,7 +182,7 @@ func (s *Server) Start() error {
 		})
 		g.Go(func() error {
 			defer l.Info("Server stopped.")
-			if err := s.GinServer.Run(port); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			if err := s.GinServer.Run(s.httpAddr); err != nil && !errors.Is(err, http.ErrServerClosed) {
 				log.Fatal("start gin server", err)
 			}
 			return nil
@@ -180,7 +195,7 @@ func (s *Server) Start() error {
 		mh := mixHTTPAndGRPC(s.ChiServer, s.GRPCServer)
 		http2Server := &http2.Server{}
 		http1Server := &http.Server{Handler: h2c.NewHandler(mh, http2Server)}
-		lis, err := net.Listen("tcp", port)
+		lis, err := net.Listen("tcp", s.httpAddr)
 		if err != nil {
 			panic(err)
 		}
@@ -200,7 +215,7 @@ func (s *Server) Start() error {
 		mh := mixHTTPAndGRPC(s.GinServer, s.GRPCServer)
 		http2Server := &http2.Server{}
 		http1Server := &http.Server{Handler: h2c.NewHandler(mh, http2Server)}
-		lis, err := net.Listen("tcp", port)
+		lis, err := net.Listen("tcp", s.httpAddr)
 		if err != nil {
 			panic(err)
 		}
@@ -213,7 +228,7 @@ func (s *Server) Start() error {
 		})
 	case s.GRPCServer != &grpccore.Server{}:
 		l.Debug("Initialized grpc server")
-		lis, err := net.Listen("tcp", grpcPort)
+		lis, err := net.Listen("tcp", s.grpcAddr)
 		if err != nil {
 			panic(err)
 		}
@@ -230,7 +245,7 @@ func (s *Server) Start() error {
 		l.Debug("Initialized gin server")
 		g.Go(func() error {
 			defer l.Info("Server stopped.")
-			if err := s.GinServer.Run(port); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			if err := s.GinServer.Run(s.httpAddr); err != nil && !errors.Is(err, http.ErrServerClosed) {
 				log.Fatal("start gin server", err)
 			}
 			return nil
@@ -239,13 +254,23 @@ func (s *Server) Start() error {
 		l.Debug("Initialized chi server")
 		g.Go(func() error {
 			defer l.Info("Server stopped.")
-			if err := http.ListenAndServe(port, s.ChiServer); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			if err := http.ListenAndServe(s.httpAddr, s.ChiServer); err != nil && !errors.Is(err, http.ErrServerClosed) {
 				log.Fatal("start chi server", err)
 			}
 			return nil
 		})
 	default:
 		l.Warn("No servers evaluated in service options.")
+	}
+
+	if s.fgprofServer != nil {
+		http.DefaultServeMux.Handle(fgprofUrl, *s.fgprofServer)
+		g.Go(func() error {
+			if err := http.ListenAndServe(s.fgprofAddr, nil); err != nil {
+				s.ZapLogger.Error("init fgprof server", zapl.Error(err))
+			}
+			return nil
+		})
 	}
 
 	g.Go(func() error {
@@ -287,10 +312,10 @@ func (s *Server) Start() error {
 func WithServerPort(port string) func(*Server) {
 	return func(s *Server) {
 		switch {
-		case port != "":
-			s.port = port
+		case port == "":
+			panic("http httpAddr not defined")
 		default:
-			s.port = httpPort
+			s.httpAddr = "0.0.0.0:" + port
 		}
 	}
 }
@@ -298,10 +323,10 @@ func WithServerPort(port string) func(*Server) {
 func WithGRPCServerPort(port string) func(*Server) {
 	return func(s *Server) {
 		switch {
-		case port != "":
-			s.grpcPort = port
+		case port == "":
+			panic("grpc httpAddr not defined")
 		default:
-			s.port = grpcPort
+			s.grpcAddr = "0.0.0.0:" + port
 		}
 	}
 }
@@ -366,6 +391,15 @@ func WithGRPCServer(cfg grpc.Config) func(*Server) {
 		default:
 			s.GRPCServer = cfg.NewDefaultGRPCServer()
 		}
+	}
+}
+
+func WithFgprofServer(cfg fgprof.Config) func(*Server) {
+	return func(s *Server) {
+		if cfg.Port != "" {
+			s.fgprofAddr = "0.0.0.0:" + cfg.Port
+		}
+		s.fgprofServer = cfg.NewDefaultFgprof()
 	}
 }
 
