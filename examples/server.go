@@ -4,12 +4,19 @@ import (
 	"log"
 
 	"github.com/go-chi/chi/v5/middleware"
+	"google.golang.org/grpc/reflection"
 
+	kitgrpc "kit/examples/proto"
 	kit "kit/server"
+
 	"kit/server/logger/zap"
 	"kit/server/servers/chi"
 	"kit/server/servers/grpc"
 )
+
+type server struct {
+	kitgrpc.UnimplementedSenderServer
+}
 
 func main() {
 	svc := kit.New(
@@ -22,6 +29,8 @@ func main() {
 		}),
 		kit.WithParallelMode(),
 	)
+	kitgrpc.RegisterSenderServer(svc.GRPCServer, &server{})
+	reflection.Register(svc.GRPCServer)
 
 	svc.ChiServer.Use(
 		middleware.Recoverer,

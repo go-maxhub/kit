@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package kitgrpc;
+option go_package = "/proto;kitgrpc";
+
+// The greeting service definition
+service Sender {
+  // Sends a greeting
+  rpc SendMessage (SendRequest) returns (SendResponse) {}
+}
+
+// The request message containing the user's name
+message SendRequest {
+  string name = 1;
+}
+
+// The response message containing the greetings
+message SendResponse {
+  string message = 1;
+}
