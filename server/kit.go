@@ -144,8 +144,51 @@ func (s *Server) Start() error {
 	)
 
 	switch {
+	case s.ChiServer != &chicore.Mux{} && s.GRPCServer != &grpccore.Server{} && s.parallelMode:
+		l.Debug("Initialized chi and grpc servers, parallel mode")
+		grpc_health_v1.RegisterHealthServer(s.GRPCServer, health.NewServer())
+		pb.RegisterEchoServer(s.GRPCServer, &echoServer{})
+		mh := mixHTTPAndGRPC(s.ChiServer, s.GRPCServer)
+		http2Server := &http2.Server{}
+		http1Server := &http.Server{Handler: h2c.NewHandler(mh, http2Server)}
+		s.ChiServer.Get("/health", func(w http.ResponseWriter, r *http.Request) {
+			w.Write([]byte("OK"))
+		})
+		lis, err := net.Listen("tcp", s.httpAddr)
+		if err != nil {
+			panic(err)
+		}
+		g.Go(func() error {
+			defer l.Info("Server stopped.")
+
+			if err := http1Server.Serve(lis); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				log.Fatal("start chi and grpc server", err)
+			}
+			return nil
+		})
+	case s.GinServer != &gincore.Engine{} && s.GRPCServer != &grpccore.Server{} && s.parallelMode:
+		l.Debug("Initialized gin and grpc servers, parallel mode")
+		grpc_health_v1.RegisterHealthServer(s.GRPCServer, health.NewServer())
+		//pb.RegisterEchoServer(s.GRPCServer, &echoServer{})
+		mh := mixHTTPAndGRPC(s.GinServer, s.GRPCServer)
+		http2Server := &http2.Server{}
+		http1Server := &http.Server{Handler: h2c.NewHandler(mh, http2Server)}
+		lis, err := net.Listen("tcp", s.httpAddr)
+		if err != nil {
+			panic(err)
+		}
+		g.Go(func() error {
+			defer l.Info("Server stopped.")
+			if err := http1Server.Serve(lis); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				log.Fatal("start gin and grpc server", err)
+			}
+			return nil
+		})
 	case s.ChiServer != &chicore.Mux{} && s.GRPCServer != &grpccore.Server{} && !s.parallelMode:
 		l.Debug("Initialized chi and grpc servers, not parallel mode")
+		s.ChiServer.Get("/health", func(w http.ResponseWriter, r *http.Request) {
+			w.Write([]byte("OK"))
+		})
 		lis, err := net.Listen("tcp", s.grpcAddr)
 		if err != nil {
 			panic(err)
@@ -162,9 +205,6 @@ func (s *Server) Start() error {
 		})
 		g.Go(func() error {
 			defer l.Info("Server stopped.")
-			s.ChiServer.Get("/health", func(w http.ResponseWriter, r *http.Request) {
-				w.Write([]byte("OK"))
-			})
 			if err := http.ListenAndServe(s.httpAddr, s.ChiServer); err != nil && !errors.Is(err, http.ErrServerClosed) {
 				log.Fatal("start chi server", err)
 			}
@@ -192,46 +232,7 @@ func (s *Server) Start() error {
 			}
 			return nil
 		})
-
-	case s.ChiServer != &chicore.Mux{} && s.GRPCServer != &grpccore.Server{} && s.parallelMode:
-		l.Debug("Initialized chi and grpc servers, parallel mode")
-		grpc_health_v1.RegisterHealthServer(s.GRPCServer, health.NewServer())
-		pb.RegisterEchoServer(s.GRPCServer, &echoServer{})
-		mh := mixHTTPAndGRPC(s.ChiServer, s.GRPCServer)
-		http2Server := &http2.Server{}
-		http1Server := &http.Server{Handler: h2c.NewHandler(mh, http2Server)}
-		lis, err := net.Listen("tcp", s.httpAddr)
-		if err != nil {
-			panic(err)
-		}
-		g.Go(func() error {
-			defer l.Info("Server stopped.")
-			grpc_health_v1.RegisterHealthServer(s.GRPCServer, health.NewServer())
-			pb.RegisterEchoServer(s.GRPCServer, &echoServer{})
-			if err := http1Server.Serve(lis); err != nil && !errors.Is(err, http.ErrServerClosed) {
-				log.Fatal("start chi and grpc server", err)
-			}
-			return nil
-		})
-	case s.GinServer != &gincore.Engine{} && s.GRPCServer != &grpccore.Server{} && s.parallelMode:
-		l.Debug("Initialized gin and grpc servers, parallel mode")
-		grpc_health_v1.RegisterHealthServer(s.GRPCServer, health.NewServer())
-		pb.RegisterEchoServer(s.GRPCServer, &echoServer{})
-		mh := mixHTTPAndGRPC(s.GinServer, s.GRPCServer)
-		http2Server := &http2.Server{}
-		http1Server := &http.Server{Handler: h2c.NewHandler(mh, http2Server)}
-		lis, err := net.Listen("tcp", s.httpAddr)
-		if err != nil {
-			panic(err)
-		}
-		g.Go(func() error {
-			defer l.Info("Server stopped.")
-			if err := http1Server.Serve(lis); err != nil && !errors.Is(err, http.ErrServerClosed) {
-				log.Fatal("start gin and grpc server", err)
-			}
-			return nil
-		})
-	case s.GRPCServer != &grpccore.Server{}:
+	case s.GRPCServer != &grpccore.Server{} && !s.parallelMode:
 		l.Debug("Initialized grpc server")
 		lis, err := net.Listen("tcp", s.grpcAddr)
 		if err != nil {
@@ -246,7 +247,7 @@ func (s *Server) Start() error {
 			}
 			return nil
 		})
-	case s.GinServer != &gincore.Engine{}:
+	case s.GinServer != &gincore.Engine{} && !s.parallelMode:
 		l.Debug("Initialized gin server")
 		g.Go(func() error {
 			defer l.Info("Server stopped.")
@@ -255,8 +256,11 @@ func (s *Server) Start() error {
 			}
 			return nil
 		})
-	case s.ChiServer != &chicore.Mux{}:
+	case s.ChiServer != &chicore.Mux{} && !s.parallelMode:
 		l.Debug("Initialized chi server")
+		s.ChiServer.Get("/health", func(w http.ResponseWriter, r *http.Request) {
+			w.Write([]byte("OK"))
+		})
 		g.Go(func() error {
 			defer l.Info("Server stopped.")
 			if err := http.ListenAndServe(s.httpAddr, s.ChiServer); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -265,7 +269,7 @@ func (s *Server) Start() error {
 			return nil
 		})
 	default:
-		l.Warn("No servers evaluated in service options.")
+		l.Warn("No servers evaluated in service options or something goes wrong.")
 	}
 
 	if s.fgprofServer != nil {
