@@ -69,6 +69,8 @@ type Server struct {
 	SlogLogger *slogcore.Logger
 	ZapLogger  *zapl.Logger
 
+	_logger *zapl.Logger
+
 	// Metrics
 	fgprofServer *http.Handler
 	fgprofAddr   string
@@ -104,22 +106,27 @@ func (s *Server) defaultConfig() {
 	if s.fgprofAddr == "" {
 		s.fgprofAddr = DefaultFgrpofAddr
 	}
+	s._logger = initLogger()
+}
+
+// validateServers validate servers to prevent usage of nil client.
+func (s *Server) validateServers() {
+	if s.ChiServer == nil {
+		s._logger.Info("!ATTENTION! chi server is not initialized")
+	}
+	if s.GRPCServer == nil {
+		s._logger.Info("!ATTENTION! grpc server is not initialized")
+	}
+	if s.GinServer == nil {
+		s._logger.Info("!ATTENTION! gin server is not initialized")
+	}
 }
 
 // Start runs servers with provided options.
 func (s *Server) Start() error {
 	s.defaultConfig()
 
-	l, err := zapl.NewDevelopment(
-		zapl.WithCaller(true),
-		zapl.AddStacktrace(zapl.InfoLevel),
-	)
-
-	if err != nil {
-		panic(err)
-	}
-
-	l.Debug("Starting service...")
+	s._logger.Debug("Starting service...")
 
 	rootCtx := context.Background()
 
@@ -134,10 +141,10 @@ func (s *Server) Start() error {
 	ctx, cancel := signal.NotifyContext(rootCtx, os.Interrupt)
 	defer cancel()
 
-	l.Debug("Starting errgroup...")
+	s._logger.Debug("Starting errgroup...")
 	g, ctx := errgroup.WithContext(ctx)
 
-	l.Debug("Initialized with ports",
+	s._logger.Debug("Initialized with ports",
 		zapl.String("http.httpAddr", s.httpAddr),
 		zapl.String("grpc.httpAddr", s.grpcAddr),
 		zapl.String("fgprof.httpAddr", s.fgprofAddr),
@@ -145,7 +152,7 @@ func (s *Server) Start() error {
 
 	switch {
 	case s.ChiServer != &chicore.Mux{} && s.GRPCServer != &grpccore.Server{} && s.parallelMode:
-		l.Debug("Initialized chi and grpc servers, parallel mode")
+		s._logger.Debug("Initialized chi and grpc servers, parallel mode")
 		grpc_health_v1.RegisterHealthServer(s.GRPCServer, health.NewServer())
 		pb.RegisterEchoServer(s.GRPCServer, &echoServer{})
 		mh := mixHTTPAndGRPC(s.ChiServer, s.GRPCServer)
@@ -159,7 +166,7 @@ func (s *Server) Start() error {
 			panic(err)
 		}
 		g.Go(func() error {
-			defer l.Info("Server stopped.")
+			defer s._logger.Info("Server stopped.")
 
 			if err := http1Server.Serve(lis); err != nil && !errors.Is(err, http.ErrServerClosed) {
 				log.Fatal("start chi and grpc server", err)
@@ -167,7 +174,7 @@ func (s *Server) Start() error {
 			return nil
 		})
 	case s.GinServer != &gincore.Engine{} && s.GRPCServer != &grpccore.Server{} && s.parallelMode:
-		l.Debug("Initialized gin and grpc servers, parallel mode")
+		s._logger.Debug("Initialized gin and grpc servers, parallel mode")
 		grpc_health_v1.RegisterHealthServer(s.GRPCServer, health.NewServer())
 		//pb.RegisterEchoServer(s.GRPCServer, &echoServer{})
 		mh := mixHTTPAndGRPC(s.GinServer, s.GRPCServer)
@@ -178,14 +185,14 @@ func (s *Server) Start() error {
 			panic(err)
 		}
 		g.Go(func() error {
-			defer l.Info("Server stopped.")
+			defer s._logger.Info("Server stopped.")
 			if err := http1Server.Serve(lis); err != nil && !errors.Is(err, http.ErrServerClosed) {
 				log.Fatal("start gin and grpc server", err)
 			}
 			return nil
 		})
 	case s.ChiServer != &chicore.Mux{} && s.GRPCServer != &grpccore.Server{} && !s.parallelMode:
-		l.Debug("Initialized chi and grpc servers, not parallel mode")
+		s._logger.Debug("Initialized chi and grpc servers, not parallel mode")
 		s.ChiServer.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 			w.Write([]byte("OK"))
 		})
@@ -194,30 +201,30 @@ func (s *Server) Start() error {
 			panic(err)
 		}
 		g.Go(func() error {
-			defer l.Info("Server stopped.")
+			defer s._logger.Info("Server stopped.")
 			grpc_health_v1.RegisterHealthServer(s.GRPCServer, health.NewServer())
 			pb.RegisterEchoServer(s.GRPCServer, &echoServer{})
 			if err := s.GRPCServer.Serve(lis); err != nil && !errors.Is(err, http.ErrServerClosed) {
 				log.Fatal("start grpc server", err)
 			}
-			l.Debug("Init chi and grpc")
+			s._logger.Debug("Init chi and grpc")
 			return nil
 		})
 		g.Go(func() error {
-			defer l.Info("Server stopped.")
+			defer s._logger.Info("Server stopped.")
 			if err := http.ListenAndServe(s.httpAddr, s.ChiServer); err != nil && !errors.Is(err, http.ErrServerClosed) {
 				log.Fatal("start chi server", err)
 			}
 			return nil
 		})
 	case s.GinServer != &gincore.Engine{} && s.GRPCServer != &grpccore.Server{} && !s.parallelMode:
-		l.Debug("Initialized gin and grpc servers, not parallel mode")
+		s._logger.Debug("Initialized gin and grpc servers, not parallel mode")
 		lis, err := net.Listen("tcp", s.grpcAddr)
 		if err != nil {
 			panic(err)
 		}
 		g.Go(func() error {
-			defer l.Info("Server stopped.")
+			defer s._logger.Info("Server stopped.")
 			grpc_health_v1.RegisterHealthServer(s.GRPCServer, health.NewServer())
 			pb.RegisterEchoServer(s.GRPCServer, &echoServer{})
 			if err := s.GRPCServer.Serve(lis); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -226,20 +233,20 @@ func (s *Server) Start() error {
 			return nil
 		})
 		g.Go(func() error {
-			defer l.Info("Server stopped.")
+			defer s._logger.Info("Server stopped.")
 			if err := s.GinServer.Run(s.httpAddr); err != nil && !errors.Is(err, http.ErrServerClosed) {
 				log.Fatal("start gin server", err)
 			}
 			return nil
 		})
 	case s.GRPCServer != &grpccore.Server{} && !s.parallelMode:
-		l.Debug("Initialized grpc server")
+		s._logger.Debug("Initialized grpc server")
 		lis, err := net.Listen("tcp", s.grpcAddr)
 		if err != nil {
 			panic(err)
 		}
 		g.Go(func() error {
-			defer l.Info("Server stopped.")
+			defer s._logger.Info("Server stopped.")
 			grpc_health_v1.RegisterHealthServer(s.GRPCServer, health.NewServer())
 			pb.RegisterEchoServer(s.GRPCServer, &echoServer{})
 			if err := s.GRPCServer.Serve(lis); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -248,28 +255,28 @@ func (s *Server) Start() error {
 			return nil
 		})
 	case s.GinServer != &gincore.Engine{} && !s.parallelMode:
-		l.Debug("Initialized gin server")
+		s._logger.Debug("Initialized gin server")
 		g.Go(func() error {
-			defer l.Info("Server stopped.")
+			defer s._logger.Info("Server stopped.")
 			if err := s.GinServer.Run(s.httpAddr); err != nil && !errors.Is(err, http.ErrServerClosed) {
 				log.Fatal("start gin server", err)
 			}
 			return nil
 		})
 	case s.ChiServer != &chicore.Mux{} && !s.parallelMode:
-		l.Debug("Initialized chi server")
+		s._logger.Debug("Initialized chi server")
 		s.ChiServer.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 			w.Write([]byte("OK"))
 		})
 		g.Go(func() error {
-			defer l.Info("Server stopped.")
+			defer s._logger.Info("Server stopped.")
 			if err := http.ListenAndServe(s.httpAddr, s.ChiServer); err != nil && !errors.Is(err, http.ErrServerClosed) {
 				log.Fatal("start chi server", err)
 			}
 			return nil
 		})
 	default:
-		l.Warn("No servers evaluated in service options or something goes wrong.")
+		s._logger.Info("No servers evaluated in service options or something goes wrong.")
 	}
 
 	if s.fgprofServer != nil {
@@ -300,11 +307,11 @@ func (s *Server) Start() error {
 			}
 		}
 		// Context is canceled, giving application time to shut down gracefully.
-		l.Warn("Waiting for application shutdown")
+		s._logger.Info("Waiting for application shutdown")
 		time.Sleep(time.Second * 5)
 
 		// Probably deadlock, forcing shutdown.
-		l.Fatal("Graceful shutdown watchdog triggered: forcing shutdown")
+		s._logger.Fatal("Graceful shutdown watchdog triggered: forcing shutdown")
 		return nil
 	})
 
@@ -315,6 +322,8 @@ func (s *Server) Start() error {
 			}
 		}
 	}
+
+	s.validateServers()
 	return g.Wait()
 }
 

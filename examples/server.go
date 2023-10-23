@@ -1,17 +1,16 @@
 package main
 
 import (
-	"log"
-
-	"github.com/go-chi/chi/v5/middleware"
-	"google.golang.org/grpc/reflection"
-
 	kitgrpc "kit/examples/proto"
 	kit "kit/server"
 
 	"kit/server/logger/zap"
 	"kit/server/servers/chi"
 	"kit/server/servers/grpc"
+
+	"github.com/go-chi/chi/v5/middleware"
+	zapl "go.uber.org/zap"
+	"google.golang.org/grpc/reflection"
 )
 
 type server struct {
@@ -40,6 +39,6 @@ func main() {
 	svc.ZapLogger.Info("Describe your server logic down here ↓↓↓")
 
 	if err := svc.Start(); err != nil {
-		log.Fatal(err)
+		svc.ZapLogger.Error("start server", zapl.Error(err))
 	}
 }

@@ -12,7 +12,6 @@ type Config struct {
 func (c *Config) NewDevelopmentLogger() *zap.Logger {
 	l, err := zap.NewDevelopment(
 		zap.AddCaller(),
-		zap.AddStacktrace(zap.DebugLevel),
 	)
 	if err != nil {
 		panic(err)
@@ -23,7 +22,6 @@ func (c *Config) NewDevelopmentLogger() *zap.Logger {
 func (c *Config) NewProductionLogger() *zap.Logger {
 	l, err := zap.NewProduction(
 		zap.AddCaller(),
-		zap.AddStacktrace(zap.DebugLevel),
 	)
 	if err != nil {
 		panic(err)
