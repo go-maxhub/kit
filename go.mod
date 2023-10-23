@@ -4,10 +4,8 @@ go 1.21.0
 
 require (
 	github.com/felixge/fgprof v0.9.3
-	github.com/gin-contrib/pprof v1.4.0
 	github.com/gin-gonic/gin v1.8.1
 	github.com/go-chi/chi/v5 v5.0.10
-	github.com/pkg/errors v0.9.1
 	go.uber.org/zap v1.26.0
 	golang.org/x/net v0.16.0
 	golang.org/x/sync v0.4.0
