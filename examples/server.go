@@ -1,10 +1,11 @@
 package main
 
 import (
+	"fmt"
 	kitgrpc "kit/examples/proto"
 	kit "kit/server"
+	"time"
 
-	"kit/server/logger/zap"
 	"kit/server/servers/chi"
 	"kit/server/servers/grpc"
 
@@ -18,15 +19,21 @@ type server struct {
 }
 
 func main() {
+
+	testGoroutine := func() error {
+		for {
+			fmt.Println("test goroutine")
+			time.Sleep(time.Second * 2)
+		}
+	}
+
 	svc := kit.New(
 		kit.WithChiServer(chi.Config{
 			Default: true,
 		}),
 		kit.WithGRPCServer(grpc.Config{Default: true}),
-		kit.WithZapLogger(zap.Config{
-			Development: true,
-		}),
 		kit.WithParallelMode(),
+		kit.WithCustomGoroutines([]func() error{testGoroutine}),
 	)
 	kitgrpc.RegisterSenderServer(svc.GRPCServer, &server{})
 	reflection.Register(svc.GRPCServer)
@@ -36,9 +43,9 @@ func main() {
 		middleware.NoCache,
 	)
 
-	svc.ZapLogger.Info("Describe your server logic down here ↓↓↓")
+	svc.DefaultLogger.Info("Describe your server logic down here ↓↓↓")
 
 	if err := svc.Start(); err != nil {
-		svc.ZapLogger.Error("start server", zapl.Error(err))
+		svc.DefaultLogger.Error("start server", zapl.Error(err))
 	}
 }
