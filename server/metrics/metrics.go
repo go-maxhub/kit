@@ -1,4 +1,4 @@
-package kit
+package metrics
 
 import (
 	"context"
@@ -44,7 +44,7 @@ func newResource() *sdkresource.Resource {
 	return resource
 }
 
-func initPrometheusConfiguration() *prometheus.Registry {
+func InitPrometheusConfiguration() *prometheus.Registry {
 	exporter, err := promexporter.New()
 	if err != nil {
 		panic(err)

@@ -2,16 +2,19 @@ package main
 
 import (
 	"fmt"
-	kitgrpc "kit/examples/proto"
-	kit "kit/server"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+	"net/http"
 	"time"
-
-	"kit/server/servers/chi"
-	"kit/server/servers/grpc"
 
 	"github.com/go-chi/chi/v5/middleware"
 	zapl "go.uber.org/zap"
 	"google.golang.org/grpc/reflection"
+
+	kitgrpc "kit/examples/proto"
+	kit "kit/server"
+	"kit/server/servers/chi"
+	"kit/server/servers/grpc"
 )
 
 type server struct {
@@ -44,7 +47,15 @@ func main() {
 		middleware.NoCache,
 	)
 
-	svc.DefaultLogger.Info("Describe your server logic down here ↓↓↓")
+	ng := promauto.NewGauge(prometheus.GaugeOpts{
+		Namespace: "myapp",
+		Name:      "connected_devices",
+		Help:      "Number of currently connected devices.",
+	})
+	svc.ChiServer.Get("/test", func(w http.ResponseWriter, r *http.Request) {
+		ng.Add(1)
+		w.Write([]byte("welcome"))
+	})
 
 	if err := svc.Start(); err != nil {
 		svc.DefaultLogger.Error("start server", zapl.Error(err))

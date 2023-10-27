@@ -5,6 +5,7 @@ import (
 	"errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"kit/server/metrics"
 	"net"
 	"net/http"
 	"os"
@@ -69,9 +70,10 @@ type Server struct {
 	DefaultLogger *zapl.Logger
 
 	// Metrics
-	fgprofServer *http.Handler
-	fgprofAddr   string
-	promRegistry *prometheus.Registry
+	fgprofServer   *http.Handler
+	fgprofAddr     string
+	promRegistry   *prometheus.Registry
+	PromCollectors []prometheus.Collector
 
 	// Before and After funcs.
 	beforeStart []func() error
@@ -90,7 +92,7 @@ func New(options ...func(*Server)) *Server {
 		o(srv)
 	}
 	srv.DefaultLogger = initDefaultZapLogger(srv.serverName)
-	srv.promRegistry = initPrometheusConfiguration()
+	srv.promRegistry = metrics.InitPrometheusConfiguration()
 	return srv
 }
 
@@ -146,7 +148,8 @@ func (s *Server) Start() error {
 	s.DefaultLogger.Info("Starting errgroup...")
 	g, ctx := errgroup.WithContext(ctx)
 
-	s.DefaultLogger.Info("Starting prometheus metrics provider...")
+	s.DefaultLogger.Info("Starting prometheus metrics server...")
+	s.promRegistry.MustRegister(s.PromCollectors...)
 	http.Handle("/metrics", promhttp.Handler())
 	g.Go(func() error {
 		if err := http.ListenAndServe(defaultPromAddr, nil); err != nil {
@@ -408,21 +411,9 @@ func WithChiServer(cfg chi.Config) func(*Server) {
 	return func(s *Server) {
 		switch {
 		case cfg.Default:
-			s.ChiServer = cfg.NewDefaultChi()
+			s.ChiServer = cfg.NewDefaultChi(s.serverName)
 		default:
-			s.ChiServer = cfg.NewDefaultChi()
-		}
-	}
-}
-
-// WithPrometheusCollectors provides evaluating custom prometheus metrics to main server to be collected.
-func WithPrometheusCollectors(collectors []prometheus.Collector) func(*Server) {
-	return func(s *Server) {
-		switch {
-		case len(collectors) == 0:
-			panic("no collectors evaluated, please, use minimum 1 collector")
-		default:
-			s.promRegistry.MustRegister(collectors...)
+			s.ChiServer = cfg.NewDefaultChi(s.serverName)
 		}
 	}
 }
