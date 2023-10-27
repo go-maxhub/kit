@@ -28,6 +28,7 @@ func main() {
 	}
 
 	svc := kit.New(
+		kit.WithServerName("shuttle"),
 		kit.WithChiServer(chi.Config{
 			Default: true,
 		}),

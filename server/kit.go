@@ -54,6 +54,8 @@ func mixHTTPAndGRPC(httpHandler http.Handler, grpcHandler *grpccore.Server) http
 // Server describes all services configurations, must be executed with Start.
 type Server struct {
 	// !ATTENTION! Options must be set before Start.
+	serverName string
+
 	httpAddr  string
 	GinServer *gincore.Engine
 	ChiServer *chicore.Mux
@@ -85,12 +87,11 @@ type Server struct {
 
 // New is base constructor function to create service with options, but won't start it without Start.
 func New(options ...func(*Server)) *Server {
-	srv := &Server{
-		DefaultLogger: initDefaultZapLogger(),
-	}
+	srv := &Server{}
 	for _, o := range options {
 		o(srv)
 	}
+	srv.DefaultLogger = initDefaultZapLogger(srv.serverName)
 	return srv
 }
 
@@ -333,6 +334,18 @@ func (s *Server) Start() error {
 
 	s.validateServers()
 	return g.Wait()
+}
+
+// WithServerName sets name of service.
+func WithServerName(name string) func(*Server) {
+	return func(s *Server) {
+		switch {
+		case name == "":
+			panic("server name evaluated, but not defined")
+		default:
+			s.serverName = name
+		}
+	}
 }
 
 // WithHTTPServerPort sets provided port to http server.
