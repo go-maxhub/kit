@@ -22,7 +22,7 @@ func main() {
 
 	testGoroutine := func() error {
 		for {
-			fmt.Println("test goroutine")
+			fmt.Println("boogie woogie")
 			time.Sleep(time.Second * 2)
 		}
 	}

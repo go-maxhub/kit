@@ -3,15 +3,14 @@ package kit
 import (
 	"context"
 	"errors"
-	"log"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"strings"
 	"time"
-
-	slogcore "log/slog"
 
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
@@ -25,7 +24,6 @@ import (
 	grpccore "google.golang.org/grpc"
 	pb "google.golang.org/grpc/examples/features/proto/echo"
 
-	"kit/server/logger/slog"
 	"kit/server/servers/chi"
 	"kit/server/servers/fgprof"
 	"kit/server/servers/gin"
@@ -36,7 +34,8 @@ const (
 	defaultHTTPAddr   = "0.0.0.0:8080"
 	defaultGRPCAddr   = "0.0.0.0:8081"
 	grpcHeader        = "application/grpc"
-	DefaultFgrpofAddr = "0.0.0.0:6060"
+	defaultFgrpofAddr = "0.0.0.0:6060"
+	defaultPromAddr   = "0.0.0.0:9090"
 	fgprofUrl         = "/debug/fgprof"
 )
 
@@ -67,13 +66,12 @@ type Server struct {
 	parallelMode bool
 
 	// Loggers.
-	SlogLogger *slogcore.Logger
-
 	DefaultLogger *zapl.Logger
 
 	// Metrics
 	fgprofServer *http.Handler
 	fgprofAddr   string
+	promRegistry *prometheus.Registry
 
 	// Before and After funcs.
 	beforeStart []func() error
@@ -92,6 +90,7 @@ func New(options ...func(*Server)) *Server {
 		o(srv)
 	}
 	srv.DefaultLogger = initDefaultZapLogger(srv.serverName)
+	srv.promRegistry = initPrometheusConfiguration()
 	return srv
 }
 
@@ -108,7 +107,7 @@ func (s *Server) defaultConfig() {
 		s.grpcAddr = defaultGRPCAddr
 	}
 	if s.fgprofAddr == "" {
-		s.fgprofAddr = DefaultFgrpofAddr
+		s.fgprofAddr = defaultFgrpofAddr
 	}
 }
 
@@ -147,10 +146,20 @@ func (s *Server) Start() error {
 	s.DefaultLogger.Info("Starting errgroup...")
 	g, ctx := errgroup.WithContext(ctx)
 
+	s.DefaultLogger.Info("Starting prometheus metrics provider...")
+	http.Handle("/metrics", promhttp.Handler())
+	g.Go(func() error {
+		if err := http.ListenAndServe(defaultPromAddr, nil); err != nil {
+			s.DefaultLogger.Error("init prometheus server", zapl.Error(err))
+		}
+		return nil
+	})
+
 	s.DefaultLogger.Info("Initialized with ports",
 		zapl.String("http.httpAddr", s.httpAddr),
 		zapl.String("grpc.httpAddr", s.grpcAddr),
 		zapl.String("fgprof.httpAddr", s.fgprofAddr),
+		zapl.String("prometheus.httpAddr", defaultPromAddr),
 	)
 
 	switch {
@@ -168,11 +177,12 @@ func (s *Server) Start() error {
 		if err != nil {
 			panic(err)
 		}
+
 		g.Go(func() error {
 			defer s.DefaultLogger.Info("Server stopped.")
 
-			if err := http1Server.Serve(lis); err != nil && !errors.Is(err, http.ErrServerClosed) {
-				log.Fatal("start chi and grpc server", err)
+			if err = http1Server.Serve(lis); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				s.DefaultLogger.Fatal("start chi and grpc server", zapl.Error(err))
 			}
 			return nil
 		})
@@ -190,7 +200,7 @@ func (s *Server) Start() error {
 		g.Go(func() error {
 			defer s.DefaultLogger.Info("Server stopped.")
 			if err := http1Server.Serve(lis); err != nil && !errors.Is(err, http.ErrServerClosed) {
-				log.Fatal("start gin and grpc server", err)
+				s.DefaultLogger.Fatal("start gin and grpc server", zapl.Error(err))
 			}
 			return nil
 		})
@@ -208,7 +218,7 @@ func (s *Server) Start() error {
 			grpc_health_v1.RegisterHealthServer(s.GRPCServer, health.NewServer())
 			pb.RegisterEchoServer(s.GRPCServer, &echoServer{})
 			if err := s.GRPCServer.Serve(lis); err != nil && !errors.Is(err, http.ErrServerClosed) {
-				log.Fatal("start grpc server", err)
+				s.DefaultLogger.Fatal("start grpc server", zapl.Error(err))
 			}
 			s.DefaultLogger.Info("Init chi and grpc")
 			return nil
@@ -216,7 +226,7 @@ func (s *Server) Start() error {
 		g.Go(func() error {
 			defer s.DefaultLogger.Info("Server stopped.")
 			if err := http.ListenAndServe(s.httpAddr, s.ChiServer); err != nil && !errors.Is(err, http.ErrServerClosed) {
-				log.Fatal("start chi server", err)
+				s.DefaultLogger.Fatal("start chi server", zapl.Error(err))
 			}
 			return nil
 		})
@@ -230,15 +240,15 @@ func (s *Server) Start() error {
 			defer s.DefaultLogger.Info("Server stopped.")
 			grpc_health_v1.RegisterHealthServer(s.GRPCServer, health.NewServer())
 			pb.RegisterEchoServer(s.GRPCServer, &echoServer{})
-			if err := s.GRPCServer.Serve(lis); err != nil && !errors.Is(err, http.ErrServerClosed) {
-				log.Fatal("start grpc server", err)
+			if err = s.GRPCServer.Serve(lis); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				s.DefaultLogger.Fatal("start grpc server", zapl.Error(err))
 			}
 			return nil
 		})
 		g.Go(func() error {
 			defer s.DefaultLogger.Info("Server stopped.")
-			if err := s.GinServer.Run(s.httpAddr); err != nil && !errors.Is(err, http.ErrServerClosed) {
-				log.Fatal("start gin server", err)
+			if err = s.GinServer.Run(s.httpAddr); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				s.DefaultLogger.Fatal("start gin server", zapl.Error(err))
 			}
 			return nil
 		})
@@ -252,8 +262,8 @@ func (s *Server) Start() error {
 			defer s.DefaultLogger.Info("Server stopped.")
 			grpc_health_v1.RegisterHealthServer(s.GRPCServer, health.NewServer())
 			pb.RegisterEchoServer(s.GRPCServer, &echoServer{})
-			if err := s.GRPCServer.Serve(lis); err != nil && !errors.Is(err, http.ErrServerClosed) {
-				log.Fatal("start grpc server", err)
+			if err = s.GRPCServer.Serve(lis); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				s.DefaultLogger.Fatal("start grpc server", zapl.Error(err))
 			}
 			return nil
 		})
@@ -262,7 +272,7 @@ func (s *Server) Start() error {
 		g.Go(func() error {
 			defer s.DefaultLogger.Info("Server stopped.")
 			if err := s.GinServer.Run(s.httpAddr); err != nil && !errors.Is(err, http.ErrServerClosed) {
-				log.Fatal("start gin server", err)
+				s.DefaultLogger.Fatal("start gin server", zapl.Error(err))
 			}
 			return nil
 		})
@@ -274,7 +284,7 @@ func (s *Server) Start() error {
 		g.Go(func() error {
 			defer s.DefaultLogger.Info("Server stopped.")
 			if err := http.ListenAndServe(s.httpAddr, s.ChiServer); err != nil && !errors.Is(err, http.ErrServerClosed) {
-				log.Fatal("start chi server", err)
+				s.DefaultLogger.Fatal("start chi server", zapl.Error(err))
 			}
 			return nil
 		})
@@ -310,11 +320,11 @@ func (s *Server) Start() error {
 			}
 		}
 		// Context is canceled, giving application time to shut down gracefully.
-		s.DefaultLogger.Info("Waiting for application shutdown")
+		s.DefaultLogger.Info("Graceful shutdown initiated, waiting to terminate...")
 		time.Sleep(time.Second * 5)
 
 		// Probably deadlock, forcing shutdown.
-		s.DefaultLogger.Fatal("Graceful shutdown watchdog triggered: forcing shutdown")
+		s.DefaultLogger.Fatal("Service terminated gracefully!")
 		return nil
 	})
 
@@ -379,22 +389,6 @@ func WithParallelMode() func(*Server) {
 	}
 }
 
-// WithSlogLogger provides log/slog logger instance which can be used in custom logic before Start.
-func WithSlogLogger(cfg slog.Config) func(*Server) {
-	return func(s *Server) {
-		switch {
-		case cfg.Default:
-			s.SlogLogger = cfg.NewDefaultLogger()
-		case cfg.JSON:
-			s.SlogLogger = cfg.NewJSONLogger()
-		case cfg.Text:
-			s.SlogLogger = cfg.NewJSONLogger()
-		default:
-			s.SlogLogger = cfg.NewJSONLogger()
-		}
-	}
-}
-
 // WithGinServer provides gin http server and runs it after Start.
 func WithGinServer(cfg gin.Config) func(*Server) {
 	return func(s *Server) {
@@ -417,6 +411,18 @@ func WithChiServer(cfg chi.Config) func(*Server) {
 			s.ChiServer = cfg.NewDefaultChi()
 		default:
 			s.ChiServer = cfg.NewDefaultChi()
+		}
+	}
+}
+
+// WithPrometheusCollectors provides evaluating custom prometheus metrics to main server to be collected.
+func WithPrometheusCollectors(collectors []prometheus.Collector) func(*Server) {
+	return func(s *Server) {
+		switch {
+		case len(collectors) == 0:
+			panic("no collectors evaluated, please, use minimum 1 collector")
+		default:
+			s.promRegistry.MustRegister(collectors...)
 		}
 	}
 }
