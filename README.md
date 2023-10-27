@@ -11,4 +11,4 @@ Friendly framework with high-performance and strong-extensibility for building m
 - add any number of your goroutines to server easily (WithCustomGoroutines option)
 - autoinstrumented with prometheus metrics handler on 0.0.0.0:9090/metrics
 - can easily register any prometheus collectors with same-named option
-- just use promauto.* to register any metrics you like, it will work immidiately
+- just use promauto.* to register any metrics you like, it will work immediately
