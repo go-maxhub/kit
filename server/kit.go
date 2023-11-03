@@ -128,6 +128,11 @@ func (s *Server) validateServers() {
 
 // Start runs servers with provided options.
 func (s *Server) Start() error {
+	envVars, err := InitEnvVars(s.DefaultLogger)
+	if err != nil {
+		return err
+	}
+
 	s.defaultConfig()
 
 	s.DefaultLogger.Info("Starting service...")
@@ -324,7 +329,8 @@ func (s *Server) Start() error {
 		}
 		// Context is canceled, giving application time to shut down gracefully.
 		s.DefaultLogger.Info("Graceful shutdown initiated, waiting to terminate...")
-		time.Sleep(time.Second * 5)
+		s.DefaultLogger.Info("Graceful shutdown config", zapl.String("gs.duration", envVars.GracefulShutdownTimeout.String()))
+		time.Sleep(envVars.GracefulShutdownTimeout)
 
 		// Probably deadlock, forcing shutdown.
 		s.DefaultLogger.Fatal("Service terminated gracefully!")

@@ -21,3 +21,7 @@ grpc_cli:
 
 grpc_ls:
 	./grpc_cli ls localhost:8081
+
+mod:
+	go mod tidy
+	go mod vendor

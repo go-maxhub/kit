@@ -2,12 +2,12 @@ package main
 
 import (
 	"fmt"
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
 	"net/http"
 	"time"
 
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	zapl "go.uber.org/zap"
 	"google.golang.org/grpc/reflection"
 
@@ -54,7 +54,10 @@ func main() {
 	})
 	svc.ChiServer.Get("/test", func(w http.ResponseWriter, r *http.Request) {
 		ng.Add(1)
-		w.Write([]byte("welcome"))
+		_, err := w.Write([]byte("welcome"))
+		if err != nil {
+			return
+		}
 	})
 
 	if err := svc.Start(); err != nil {
