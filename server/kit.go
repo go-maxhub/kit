@@ -23,8 +23,6 @@ import (
 	chicore "github.com/go-chi/chi/v5"
 	zapl "go.uber.org/zap"
 	grpccore "google.golang.org/grpc"
-	pb "google.golang.org/grpc/examples/features/proto/echo"
-
 	"kit/server/servers/chi"
 	"kit/server/servers/fgprof"
 	"kit/server/servers/gin"
@@ -94,10 +92,6 @@ func New(options ...func(*Server)) *Server {
 	srv.DefaultLogger = initDefaultZapLogger(srv.serverName)
 	srv.promRegistry = metrics.InitPrometheusConfiguration()
 	return srv
-}
-
-type echoServer struct {
-	pb.UnimplementedEchoServer
 }
 
 // defaultConfig sets Server struct default values for not provided options.
@@ -173,14 +167,9 @@ func (s *Server) Start() error {
 	switch {
 	case s.ChiServer != &chicore.Mux{} && s.GRPCServer != &grpccore.Server{} && s.parallelMode:
 		s.DefaultLogger.Info("Initialized chi and grpc servers, parallel mode")
-		grpc_health_v1.RegisterHealthServer(s.GRPCServer, health.NewServer())
-		pb.RegisterEchoServer(s.GRPCServer, &echoServer{})
 		mh := mixHTTPAndGRPC(s.ChiServer, s.GRPCServer)
 		http2Server := &http2.Server{}
 		http1Server := &http.Server{Handler: h2c.NewHandler(mh, http2Server)}
-		s.ChiServer.Get("/health", func(w http.ResponseWriter, r *http.Request) {
-			w.Write([]byte("OK"))
-		})
 		lis, err := net.Listen("tcp", s.httpAddr)
 		if err != nil {
 			panic(err)
@@ -214,17 +203,12 @@ func (s *Server) Start() error {
 		})
 	case s.ChiServer != &chicore.Mux{} && s.GRPCServer != &grpccore.Server{} && !s.parallelMode:
 		s.DefaultLogger.Info("Initialized chi and grpc servers, not parallel mode")
-		s.ChiServer.Get("/health", func(w http.ResponseWriter, r *http.Request) {
-			w.Write([]byte("OK"))
-		})
 		lis, err := net.Listen("tcp", s.grpcAddr)
 		if err != nil {
 			panic(err)
 		}
 		g.Go(func() error {
 			defer s.DefaultLogger.Info("Server stopped.")
-			grpc_health_v1.RegisterHealthServer(s.GRPCServer, health.NewServer())
-			pb.RegisterEchoServer(s.GRPCServer, &echoServer{})
 			if err := s.GRPCServer.Serve(lis); err != nil && !errors.Is(err, http.ErrServerClosed) {
 				s.DefaultLogger.Fatal("start grpc server", zapl.Error(err))
 			}
@@ -246,8 +230,6 @@ func (s *Server) Start() error {
 		}
 		g.Go(func() error {
 			defer s.DefaultLogger.Info("Server stopped.")
-			grpc_health_v1.RegisterHealthServer(s.GRPCServer, health.NewServer())
-			pb.RegisterEchoServer(s.GRPCServer, &echoServer{})
 			if err = s.GRPCServer.Serve(lis); err != nil && !errors.Is(err, http.ErrServerClosed) {
 				s.DefaultLogger.Fatal("start grpc server", zapl.Error(err))
 			}
@@ -268,8 +250,6 @@ func (s *Server) Start() error {
 		}
 		g.Go(func() error {
 			defer s.DefaultLogger.Info("Server stopped.")
-			grpc_health_v1.RegisterHealthServer(s.GRPCServer, health.NewServer())
-			pb.RegisterEchoServer(s.GRPCServer, &echoServer{})
 			if err = s.GRPCServer.Serve(lis); err != nil && !errors.Is(err, http.ErrServerClosed) {
 				s.DefaultLogger.Fatal("start grpc server", zapl.Error(err))
 			}
@@ -286,9 +266,6 @@ func (s *Server) Start() error {
 		})
 	case s.ChiServer != &chicore.Mux{} && !s.parallelMode:
 		s.DefaultLogger.Info("Initialized chi server")
-		s.ChiServer.Get("/health", func(w http.ResponseWriter, r *http.Request) {
-			w.Write([]byte("OK"))
-		})
 		g.Go(func() error {
 			defer s.DefaultLogger.Info("Server stopped.")
 			if err := http.ListenAndServe(s.httpAddr, s.ChiServer); err != nil && !errors.Is(err, http.ErrServerClosed) {
