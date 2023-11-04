@@ -37,8 +37,6 @@ func (w *writerProxy) Write(bytes []byte) (n int, err error) {
 
 type logger struct {
 	base *zap.Logger
-	lg   *zap.Logger
-	span oteltrace.SpanContext
 }
 
 func (w *writerProxy) WriteHeader(statusCode int) {
@@ -112,11 +110,13 @@ func TraceMiddleware(lg *zap.Logger, m *metric.Metrics, t oteltrace.Tracer) Midd
 func (c *Config) NewDefaultChi(ctx context.Context, lg *zap.Logger, serverName string) *chi.Mux {
 	tracer := trace.InitChiTracerProvider()
 
-	m, err := metric.NewMetrics(ctx, lg.Named("kit.metrics"), nil, nil)
+	m, err := metric.NewMetrics(ctx, lg.Named("kit.metrics"))
 	if err != nil {
 		lg.Fatal("init metrics", zap.Error(err))
 	}
+
 	cl := chi.NewRouter()
+
 	cl.Use(
 		metric.NewMiddleware(serverName),
 		middleware.RequestID,

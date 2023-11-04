@@ -111,7 +111,10 @@ func (s *Server) defaultConfig() {
 		s.fgprofAddr = defaultFgrpofAddr
 	}
 	s.ChiServer.Get("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("OK"))
+		_, err := w.Write([]byte("OK"))
+		if err != nil {
+			return
+		}
 	})
 }
 
