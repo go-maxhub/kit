@@ -23,7 +23,7 @@ import (
 	chicore "github.com/go-chi/chi/v5"
 	zapl "go.uber.org/zap"
 	grpccore "google.golang.org/grpc"
-	
+
 	"kit/server/servers/chi"
 	"kit/server/servers/fgprof"
 	"kit/server/servers/gin"
@@ -54,6 +54,8 @@ func mixHTTPAndGRPC(httpHandler http.Handler, grpcHandler *grpccore.Server) http
 type Server struct {
 	// !ATTENTION! Options must be set before Start.
 	serverName string
+
+	rootCtx context.Context
 
 	httpAddr  string
 	GinServer *gincore.Engine
@@ -87,11 +89,13 @@ type Server struct {
 // New is base constructor function to create service with options, but won't start it without Start.
 func New(options ...func(*Server)) *Server {
 	srv := &Server{}
+	srv.DefaultLogger = initDefaultZapLogger(srv.serverName)
+	srv.promRegistry = metric.InitPrometheusConfiguration()
+	srv.rootCtx = context.Background()
+
 	for _, o := range options {
 		o(srv)
 	}
-	srv.DefaultLogger = initDefaultZapLogger(srv.serverName)
-	srv.promRegistry = metric.InitPrometheusConfiguration()
 	return srv
 }
 
@@ -106,6 +110,9 @@ func (s *Server) defaultConfig() {
 	if s.fgprofAddr == "" {
 		s.fgprofAddr = defaultFgrpofAddr
 	}
+	s.ChiServer.Get("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("OK"))
+	})
 }
 
 // validateServers validate servers to prevent usage of nil client.
@@ -132,8 +139,6 @@ func (s *Server) Start() error {
 
 	s.DefaultLogger.Info("Starting service...")
 
-	rootCtx := context.Background()
-
 	if len(s.beforeStart) > 0 {
 		for _, fn := range s.beforeStart {
 			if err := fn(); err != nil {
@@ -142,7 +147,7 @@ func (s *Server) Start() error {
 		}
 	}
 
-	ctx, cancel := signal.NotifyContext(rootCtx, os.Interrupt)
+	ctx, cancel := signal.NotifyContext(s.rootCtx, os.Interrupt)
 	defer cancel()
 
 	s.DefaultLogger.Info("Starting errgroup...")
@@ -395,9 +400,9 @@ func WithChiServer(cfg chi.Config) func(*Server) {
 	return func(s *Server) {
 		switch {
 		case cfg.Default:
-			s.ChiServer = cfg.NewDefaultChi(s.serverName)
+			s.ChiServer = cfg.NewDefaultChi(s.rootCtx, s.DefaultLogger, s.serverName)
 		default:
-			s.ChiServer = cfg.NewDefaultChi(s.serverName)
+			s.ChiServer = cfg.NewDefaultChi(s.rootCtx, s.DefaultLogger, s.serverName)
 		}
 	}
 }
