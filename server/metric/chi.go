@@ -1,4 +1,4 @@
-package metrics
+package metric
 
 import (
 	"net/http"
@@ -10,7 +10,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-// Default bucket values for histogram metrics.
+// Default bucket values for histogram metric.
 var (
 	dflBuckets = []float64{300, 1200, 5000}
 )
@@ -30,7 +30,7 @@ type Middleware struct {
 	latency *prometheus.HistogramVec
 }
 
-// NewMiddleware constructs a Middleware that records basic request metrics.
+// NewMiddleware constructs a Middleware that records basic request metric.
 // Name parameter identifies the service, and buckets customizes latency histograms.
 // It wraps the next HTTP handler, instrumenting how requests are processed.
 func NewMiddleware(name string, buckets ...float64) func(next http.Handler) http.Handler {
@@ -60,7 +60,7 @@ func NewMiddleware(name string, buckets ...float64) func(next http.Handler) http
 	return m.handler
 }
 
-// A private function that defines how the basic request metrics are gathered.
+// A private function that defines how the basic request metric are gathered.
 func (c Middleware) handler(next http.Handler) http.Handler {
 	fn := func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
@@ -102,7 +102,7 @@ func NewPatternMiddleware(name string, buckets ...float64) func(next http.Handle
 	return m.patternHandler
 }
 
-// A private function defining how the pattern-specific request metrics are gathered.
+// A private function defining how the pattern-specific request metric are gathered.
 func (c Middleware) patternHandler(next http.Handler) http.Handler {
 	fn := func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()

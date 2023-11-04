@@ -2,7 +2,7 @@ package chi
 
 import (
 	"github.com/go-chi/chi/v5"
-	"kit/server/metrics"
+	"kit/server/metric"
 	"net/http"
 )
 
@@ -12,7 +12,7 @@ type Config struct {
 
 func (c *Config) NewDefaultChi(serverName string) *chi.Mux {
 	cl := chi.NewRouter()
-	cl.Use(metrics.NewMiddleware(serverName))
+	cl.Use(metric.NewMiddleware(serverName))
 	cl.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("OK"))
 	})

@@ -3,9 +3,7 @@ package kit
 import (
 	"context"
 	"errors"
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"kit/server/metrics"
+	"kit/server/metric"
 	"net"
 	"net/http"
 	"os"
@@ -13,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 	"golang.org/x/sync/errgroup"
@@ -23,6 +23,7 @@ import (
 	chicore "github.com/go-chi/chi/v5"
 	zapl "go.uber.org/zap"
 	grpccore "google.golang.org/grpc"
+	
 	"kit/server/servers/chi"
 	"kit/server/servers/fgprof"
 	"kit/server/servers/gin"
@@ -90,7 +91,7 @@ func New(options ...func(*Server)) *Server {
 		o(srv)
 	}
 	srv.DefaultLogger = initDefaultZapLogger(srv.serverName)
-	srv.promRegistry = metrics.InitPrometheusConfiguration()
+	srv.promRegistry = metric.InitPrometheusConfiguration()
 	return srv
 }
 
@@ -147,7 +148,7 @@ func (s *Server) Start() error {
 	s.DefaultLogger.Info("Starting errgroup...")
 	g, ctx := errgroup.WithContext(ctx)
 
-	s.DefaultLogger.Info("Starting prometheus metrics server...")
+	s.DefaultLogger.Info("Starting prometheus metric server...")
 	s.promRegistry.MustRegister(s.PromCollectors...)
 	http.Handle("/metrics", promhttp.Handler())
 	g.Go(func() error {
