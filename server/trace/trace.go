@@ -5,42 +5,109 @@ import (
 	"log"
 
 	"go.opentelemetry.io/otel"
-	stdout "go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
 	"go.opentelemetry.io/otel/trace"
+	"go.uber.org/zap"
 )
 
-func InitChiTracerProvider() *trace.Tracer {
-	exporter, err := stdout.New(stdout.WithPrettyPrint())
-	if err != nil {
-		log.Fatal(err)
+type opentelemetryTracerProviderStore struct {
+	exporters []sdktrace.SpanExporter
+	res       *resource.Resource
+	sampler   sdktrace.Sampler
+}
+
+// RegisterExporter adds a Span Exporter for registration with open telemetry global trace provider
+func (s *opentelemetryTracerProviderStore) RegisterExporter(exporter sdktrace.SpanExporter) {
+	s.exporters = append(s.exporters, exporter)
+}
+
+// HasExporter returns whether at least one Span Exporter has been registered
+func (s *opentelemetryTracerProviderStore) HasExporter() bool {
+	return len(s.exporters) > 0
+}
+
+// RegisterResource adds a Resource for registration with open telemetry global trace provider
+func (s *opentelemetryTracerProviderStore) RegisterResource(res *resource.Resource) {
+	s.res = res
+}
+
+// RegisterSampler adds a custom sampler for registration with open telemetry global trace provider
+func (s *opentelemetryTracerProviderStore) RegisterSampler(sampler sdktrace.Sampler) {
+	s.sampler = sampler
+}
+
+// RegisterTracerProvider RegisterTraceProvider registers a trace provider as per the tracer options in the store
+func (s *opentelemetryTracerProviderStore) RegisterTracerProvider() *sdktrace.TracerProvider {
+	if len(s.exporters) != 0 {
+		var tracerOptions []sdktrace.TracerProviderOption
+		for _, exporter := range s.exporters {
+			tracerOptions = append(tracerOptions, sdktrace.WithBatcher(exporter))
+		}
+
+		if s.res != nil {
+			tracerOptions = append(tracerOptions, sdktrace.WithResource(s.res))
+		}
+
+		if s.sampler != nil {
+			tracerOptions = append(tracerOptions, sdktrace.WithSampler(s.sampler))
+		}
+
+		tp := sdktrace.NewTracerProvider(tracerOptions...)
+
+		otel.SetTracerProvider(tp)
+		return tp
 	}
+	return nil
+}
+
+func newOTELTracerProviderStore() *opentelemetryTracerProviderStore {
+	var exps []sdktrace.SpanExporter
+	return &opentelemetryTracerProviderStore{exps, nil, nil}
+}
+
+func InitChiTracerProvider(ctx context.Context, lg *zap.Logger, serverName, serverVersion, jaegerHost string) (*trace.Tracer, *sdktrace.TracerProvider) {
+	var (
+		client  otlptrace.Client
+		tpStore *opentelemetryTracerProviderStore
+	)
+
+	tpStore = newOTELTracerProviderStore()
+
+	clientOptions := []otlptracehttp.Option{otlptracehttp.WithEndpoint(jaegerHost), otlptracehttp.WithInsecure()}
+	client = otlptracehttp.NewClient(clientOptions...)
+
+	otelExporter, err := otlptrace.New(ctx, client)
+	if err != nil {
+		lg.Fatal("init new otel exporter", zap.Error(err))
+	}
+
+	tpStore.RegisterExporter(otelExporter)
+
 	res, err := resource.New(
 		context.Background(),
 		resource.WithAttributes(
-			// the service name used to display traces in backends
-			semconv.ServiceNameKey.String("kit.server"),
+			semconv.ServiceNameKey.String(serverName),
+			semconv.ServiceVersionKey.String(serverVersion),
 		),
+		resource.WithProcessRuntimeDescription(),
+		resource.WithTelemetrySDK(),
 	)
 	if err != nil {
 		log.Fatalf("unable to initialize resource due: %v", err)
 	}
-	tp := sdktrace.NewTracerProvider(
-		sdktrace.WithSampler(sdktrace.AlwaysSample()),
-		sdktrace.WithBatcher(exporter),
-		sdktrace.WithResource(res),
-	)
-	defer func() {
-		if err := tp.Shutdown(context.Background()); err != nil {
-			log.Printf("shutdown tracer provider: %v", err)
-		}
-	}()
+
+	tpStore.RegisterResource(res)
+	tpStore.RegisterSampler(sdktrace.AlwaysSample())
+	tp := tpStore.RegisterTracerProvider()
+
 	otel.SetTracerProvider(tp)
 	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(propagation.TraceContext{}, propagation.Baggage{}))
-	// initialize tracer
+
 	tracer := otel.Tracer("kit.tracer")
-	return &tracer
+	return &tracer, tp
 }

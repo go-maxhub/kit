@@ -9,10 +9,17 @@ import (
 )
 
 type Env struct {
-	GracefulShutdownTimeout time.Duration `env:"GRACEFUL_SHUTDOWN" envDefault:"5s"`
+	ServerVersion string `env:"KIT_SERVER_VERSION" envDefault:"0.0.0"`
+
+	GracefulShutdownTimeout time.Duration `env:"KIT_GRACEFUL_SHUTDOWN" envDefault:"5s"`
+
+	OTELJaegerHost string `env:"KIT_TRACING_JAEGER_HOST" envDefault:"localhost:4318"`
+
+	FgprofEnable bool   `env:"KIT_METRICS_FGPROF" envDefault:"false"`
+	FgprofPort   string `env:"KIT_TRACING_FGPROF_PORT" envDefault:"6060"`
 }
 
-func InitEnvVars(lg *zap.Logger) (Env, error) {
+func initEnvVars(lg *zap.Logger) (Env, error) {
 	envVars := Env{}
 	if err := envParser.Parse(&envVars); err != nil {
 		lg.Error("parse env vars", zap.Error(err))

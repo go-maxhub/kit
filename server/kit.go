@@ -3,7 +3,7 @@ package kit
 import (
 	"context"
 	"errors"
-	"kit/server/metric"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/felixge/fgprof"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"golang.org/x/net/http2"
@@ -21,11 +22,12 @@ import (
 
 	gincore "github.com/gin-gonic/gin"
 	chicore "github.com/go-chi/chi/v5"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	zapl "go.uber.org/zap"
 	grpccore "google.golang.org/grpc"
 
+	"kit/server/metric"
 	"kit/server/servers/chi"
-	"kit/server/servers/fgprof"
 	"kit/server/servers/gin"
 	"kit/server/servers/grpc"
 )
@@ -53,13 +55,18 @@ func mixHTTPAndGRPC(httpHandler http.Handler, grpcHandler *grpccore.Server) http
 // Server describes all services configurations, must be executed with Start.
 type Server struct {
 	// !ATTENTION! Options must be set before Start.
-	serverName string
+	ServerName    string
+	ServerVersion string
 
-	rootCtx context.Context
+	EnvVars Env
+
+	RootCtx context.Context
 
 	httpAddr  string
 	GinServer *gincore.Engine
 	ChiServer *chicore.Mux
+
+	tp *sdktrace.TracerProvider
 
 	grpcAddr   string
 	GRPCServer *grpccore.Server
@@ -71,7 +78,7 @@ type Server struct {
 	DefaultLogger *zapl.Logger
 
 	// Metrics
-	fgprofServer   *http.Handler
+	fgprofServer   http.Handler
 	fgprofAddr     string
 	promRegistry   *prometheus.Registry
 	PromCollectors []prometheus.Collector
@@ -89,13 +96,26 @@ type Server struct {
 // New is base constructor function to create service with options, but won't start it without Start.
 func New(options ...func(*Server)) *Server {
 	srv := &Server{}
-	srv.DefaultLogger = initDefaultZapLogger(srv.serverName)
 	srv.promRegistry = metric.InitPrometheusConfiguration()
-	srv.rootCtx = context.Background()
+	srv.RootCtx = context.Background()
+	srv.DefaultLogger = initDefaultZapLogger()
+
+	envVars, err := initEnvVars(srv.DefaultLogger)
+	if err != nil {
+		panic(err)
+	}
+	srv.EnvVars = envVars
 
 	for _, o := range options {
 		o(srv)
 	}
+
+	if srv.ServerName != "" {
+		srv.DefaultLogger = srv.DefaultLogger.WithOptions(
+			zapl.Fields(
+				zapl.String("service.name", srv.ServerName)))
+	}
+
 	return srv
 }
 
@@ -109,6 +129,8 @@ func (s *Server) defaultConfig() {
 	}
 	if s.fgprofAddr == "" {
 		s.fgprofAddr = defaultFgrpofAddr
+	} else {
+		s.fgprofAddr = "0.0.0.0" + s.EnvVars.FgprofPort
 	}
 	s.ChiServer.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		_, err := w.Write([]byte("OK"))
@@ -116,6 +138,8 @@ func (s *Server) defaultConfig() {
 			return
 		}
 	})
+	s.ServerVersion = s.EnvVars.ServerVersion
+	s.fgprofServer = fgprof.Handler()
 }
 
 // validateServers validate servers to prevent usage of nil client.
@@ -133,10 +157,6 @@ func (s *Server) validateServers() {
 
 // Start runs servers with provided options.
 func (s *Server) Start() error {
-	envVars, err := InitEnvVars(s.DefaultLogger)
-	if err != nil {
-		return err
-	}
 
 	s.defaultConfig()
 
@@ -150,13 +170,22 @@ func (s *Server) Start() error {
 		}
 	}
 
-	ctx, cancel := signal.NotifyContext(s.rootCtx, os.Interrupt)
+	ctx, cancel := signal.NotifyContext(s.RootCtx, os.Interrupt)
 	defer cancel()
 
-	s.DefaultLogger.Info("Starting errgroup...")
+	s.DefaultLogger.Info(
+		"OTEL options",
+		zapl.String("KIT_TRACING_JAEGER_HOST", os.Getenv("KIT_TRACING_JAEGER_HOST")),
+	)
+	defer func() {
+		if err := s.tp.Shutdown(s.RootCtx); err != nil {
+			log.Printf("shutdown tracer provider: %v", err)
+		}
+	}()
+
 	g, ctx := errgroup.WithContext(ctx)
 
-	s.DefaultLogger.Info("Starting prometheus metric server...")
+	s.DefaultLogger.Info("Starting prometheus metric endpoint...")
 	s.promRegistry.MustRegister(s.PromCollectors...)
 	http.Handle("/metrics", promhttp.Handler())
 	g.Go(func() error {
@@ -286,8 +315,9 @@ func (s *Server) Start() error {
 		s.DefaultLogger.Info("No servers evaluated in service options or something goes wrong.")
 	}
 
-	if s.fgprofServer != nil {
-		http.DefaultServeMux.Handle(fgprofUrl, *s.fgprofServer)
+	if s.EnvVars.FgprofEnable {
+		s.DefaultLogger.Info("Starting fgprof endpoint...")
+		http.DefaultServeMux.Handle(fgprofUrl, s.fgprofServer)
 		g.Go(func() error {
 			if err := http.ListenAndServe(s.fgprofAddr, nil); err != nil {
 				s.DefaultLogger.Error("init fgprof server", zapl.Error(err))
@@ -315,8 +345,8 @@ func (s *Server) Start() error {
 		}
 		// Context is canceled, giving application time to shut down gracefully.
 		s.DefaultLogger.Info("Graceful shutdown initiated, waiting to terminate...")
-		s.DefaultLogger.Info("Graceful shutdown config", zapl.String("gs.duration", envVars.GracefulShutdownTimeout.String()))
-		time.Sleep(envVars.GracefulShutdownTimeout)
+		s.DefaultLogger.Info("Graceful shutdown config", zapl.String("gs.duration", s.EnvVars.GracefulShutdownTimeout.String()))
+		time.Sleep(s.EnvVars.GracefulShutdownTimeout)
 
 		// Probably deadlock, forcing shutdown.
 		s.DefaultLogger.Fatal("Service terminated gracefully!")
@@ -348,7 +378,7 @@ func WithServerName(name string) func(*Server) {
 		case name == "":
 			panic("server name evaluated, but not defined")
 		default:
-			s.serverName = name
+			s.ServerName = name
 		}
 	}
 }
@@ -401,12 +431,9 @@ func WithGinServer(cfg gin.Config) func(*Server) {
 // WithChiServer provides chi http server and runs it after Start.
 func WithChiServer(cfg chi.Config) func(*Server) {
 	return func(s *Server) {
-		switch {
-		case cfg.Default:
-			s.ChiServer = cfg.NewDefaultChi(s.rootCtx, s.DefaultLogger, s.serverName)
-		default:
-			s.ChiServer = cfg.NewDefaultChi(s.rootCtx, s.DefaultLogger, s.serverName)
-		}
+		srv, tp := cfg.NewDefaultChi(s.RootCtx, s.DefaultLogger, s.ServerName, s.ServerVersion, s.EnvVars.OTELJaegerHost)
+		s.ChiServer = srv
+		s.tp = tp
 	}
 }
 
@@ -419,16 +446,6 @@ func WithGRPCServer(cfg grpc.Config) func(*Server) {
 		default:
 			s.GRPCServer = cfg.NewDefaultGRPCServer()
 		}
-	}
-}
-
-// WithFgprofServer provides http server with fgprof handler on 6060 port(by default) and runs it after Start.
-func WithFgprofServer(cfg fgprof.Config) func(*Server) {
-	return func(s *Server) {
-		if cfg.Port != "" {
-			s.fgprofAddr = "0.0.0.0:" + cfg.Port
-		}
-		s.fgprofServer = cfg.NewDefaultFgprof()
 	}
 }
 

@@ -10,6 +10,7 @@ import (
 	"github.com/riandyrn/otelchi"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/propagation"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	oteltrace "go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 
@@ -107,8 +108,8 @@ func TraceMiddleware(lg *zap.Logger, m *metric.Metrics, t oteltrace.Tracer) Midd
 	}
 }
 
-func (c *Config) NewDefaultChi(ctx context.Context, lg *zap.Logger, serverName string) *chi.Mux {
-	tracer := trace.InitChiTracerProvider()
+func (c *Config) NewDefaultChi(ctx context.Context, lg *zap.Logger, serverName, serverVersion, jaegerHost string) (*chi.Mux, *sdktrace.TracerProvider) {
+	tracer, tp := trace.InitChiTracerProvider(ctx, lg, serverName, serverVersion, jaegerHost)
 
 	m, err := metric.NewMetrics(ctx, lg.Named("kit.metrics"))
 	if err != nil {
@@ -120,8 +121,10 @@ func (c *Config) NewDefaultChi(ctx context.Context, lg *zap.Logger, serverName s
 	cl.Use(
 		metric.NewMiddleware(serverName),
 		middleware.RequestID,
+		middleware.Timeout(60*time.Second),
+		middleware.RealIP,
 		TraceMiddleware(lg, m, *tracer),
 		otelchi.Middleware(serverName, otelchi.WithChiRoutes(cl)),
 	)
-	return cl
+	return cl, tp
 }
