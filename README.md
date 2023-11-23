@@ -23,3 +23,13 @@ Friendly framework with high-performance and strong-extensibility for building m
 | `KIT_METRICS_FGPROF`              | Enable fgprof                | `true`             | `false`          |
 | `KIT_METRICS_PPROF`               | Enable pprof                 | `true`             | `false`          | 
 
+## Default configuration
+
+| Feature             | Host           | Notes              |
+|---------------------|----------------|--------------------|
+| HTTP Server(chi)    | 0.0.0.0:8080   |                    |
+| GRPC Server         | 0.0.0.0:8081   |                    |
+| Default jaeger host | localhost:4318 |                    |
+| Default GRPC header |                | `application/grpc` |
+| Fgprof address      | 0.0.0.0:6060   | /debug/fgprof      |
+| Pprof address       | 0.0.0.0:9090   | /debug/pprof/*     |
