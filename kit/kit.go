@@ -200,7 +200,38 @@ func (s *Server) Start() error {
 	)
 
 	switch {
-	case s.ChiServer != &chicore.Mux{} && s.GRPCServer != &grpccore.Server{} && s.parallelMode:
+	case s.ChiServer != nil && !s.parallelMode:
+		s.DefaultLogger.Info("Initialized chi kit")
+		g.Go(func() error {
+			defer s.DefaultLogger.Info("Server stopped.")
+			if err := http.ListenAndServe(s.httpAddr, s.ChiServer); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				s.DefaultLogger.Fatal("start chi kit", zapl.Error(err))
+			}
+			return nil
+		})
+	case s.GinServer != nil && !s.parallelMode:
+		s.DefaultLogger.Info("Initialized gin kit")
+		g.Go(func() error {
+			defer s.DefaultLogger.Info("Server stopped.")
+			if err := s.GinServer.Run(s.httpAddr); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				s.DefaultLogger.Fatal("start gin kit", zapl.Error(err))
+			}
+			return nil
+		})
+	case s.GRPCServer != nil && !s.parallelMode:
+		s.DefaultLogger.Info("Initialized grpc kit")
+		lis, err := net.Listen("tcp", s.grpcAddr)
+		if err != nil {
+			panic(err)
+		}
+		g.Go(func() error {
+			defer s.DefaultLogger.Info("Server stopped.")
+			if err = s.GRPCServer.Serve(lis); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				s.DefaultLogger.Fatal("start grpc kit", zapl.Error(err))
+			}
+			return nil
+		})
+	case s.ChiServer != nil && s.GRPCServer != nil && s.parallelMode:
 		s.DefaultLogger.Info("Initialized chi and grpc servers, parallel mode")
 		mh := mixHTTPAndGRPC(s.ChiServer, s.GRPCServer)
 		http2Server := &http2.Server{}
@@ -218,7 +249,7 @@ func (s *Server) Start() error {
 			}
 			return nil
 		})
-	case s.GinServer != &gincore.Engine{} && s.GRPCServer != &grpccore.Server{} && s.parallelMode:
+	case s.GinServer != nil && s.GRPCServer != nil && s.parallelMode:
 		s.DefaultLogger.Info("Initialized gin and grpc servers, parallel mode")
 		grpc_health_v1.RegisterHealthServer(s.GRPCServer, health.NewServer())
 		//pb.RegisterEchoServer(s.GRPCServer, &echoServer{})
@@ -236,7 +267,7 @@ func (s *Server) Start() error {
 			}
 			return nil
 		})
-	case s.ChiServer != &chicore.Mux{} && s.GRPCServer != &grpccore.Server{} && !s.parallelMode:
+	case s.ChiServer != nil && s.GRPCServer != nil && !s.parallelMode:
 		s.DefaultLogger.Info("Initialized chi and grpc servers, not parallel mode")
 		lis, err := net.Listen("tcp", s.grpcAddr)
 		if err != nil {
@@ -257,7 +288,7 @@ func (s *Server) Start() error {
 			}
 			return nil
 		})
-	case s.GinServer != &gincore.Engine{} && s.GRPCServer != &grpccore.Server{} && !s.parallelMode:
+	case s.GinServer != nil && s.GRPCServer != nil && !s.parallelMode:
 		s.DefaultLogger.Info("Initialized gin and grpc servers, not parallel mode")
 		lis, err := net.Listen("tcp", s.grpcAddr)
 		if err != nil {
@@ -274,37 +305,6 @@ func (s *Server) Start() error {
 			defer s.DefaultLogger.Info("Server stopped.")
 			if err = s.GinServer.Run(s.httpAddr); err != nil && !errors.Is(err, http.ErrServerClosed) {
 				s.DefaultLogger.Fatal("start gin kit", zapl.Error(err))
-			}
-			return nil
-		})
-	case s.GRPCServer != &grpccore.Server{} && !s.parallelMode:
-		s.DefaultLogger.Info("Initialized grpc kit")
-		lis, err := net.Listen("tcp", s.grpcAddr)
-		if err != nil {
-			panic(err)
-		}
-		g.Go(func() error {
-			defer s.DefaultLogger.Info("Server stopped.")
-			if err = s.GRPCServer.Serve(lis); err != nil && !errors.Is(err, http.ErrServerClosed) {
-				s.DefaultLogger.Fatal("start grpc kit", zapl.Error(err))
-			}
-			return nil
-		})
-	case s.GinServer != &gincore.Engine{} && !s.parallelMode:
-		s.DefaultLogger.Info("Initialized gin kit")
-		g.Go(func() error {
-			defer s.DefaultLogger.Info("Server stopped.")
-			if err := s.GinServer.Run(s.httpAddr); err != nil && !errors.Is(err, http.ErrServerClosed) {
-				s.DefaultLogger.Fatal("start gin kit", zapl.Error(err))
-			}
-			return nil
-		})
-	case s.ChiServer != &chicore.Mux{} && !s.parallelMode:
-		s.DefaultLogger.Info("Initialized chi kit")
-		g.Go(func() error {
-			defer s.DefaultLogger.Info("Server stopped.")
-			if err := http.ListenAndServe(s.httpAddr, s.ChiServer); err != nil && !errors.Is(err, http.ErrServerClosed) {
-				s.DefaultLogger.Fatal("start chi kit", zapl.Error(err))
 			}
 			return nil
 		})

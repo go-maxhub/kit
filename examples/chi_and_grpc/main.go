@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/go-maxhub/kit/examples/chi_and_grpc/proto"
 	"net/http"
 	"time"
 
@@ -11,7 +12,6 @@ import (
 	zapl "go.uber.org/zap"
 	"google.golang.org/grpc/reflection"
 
-	kitgrpc "github.com/go-maxhub/kit/examples/proto"
 	kit "github.com/go-maxhub/kit/kit"
 	"github.com/go-maxhub/kit/kit/servers/chi"
 	"github.com/go-maxhub/kit/kit/servers/grpc"
