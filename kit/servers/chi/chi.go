@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"time"
+	"unsafe"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -45,6 +46,10 @@ func (w *writerProxy) WriteHeader(statusCode int) {
 	w.status = statusCode
 }
 
+func byteToString(b []byte) string {
+	return *(*string)(unsafe.Pointer(&b))
+}
+
 func TraceMiddleware(lg *zap.Logger, m *metric.Metrics, t oteltrace.Tracer, debugHeaders bool) Middleware {
 	const nanosecInMillisec = float64(time.Millisecond)
 
@@ -56,7 +61,6 @@ func TraceMiddleware(lg *zap.Logger, m *metric.Metrics, t oteltrace.Tracer, debu
 			ctx := r.Context()
 			ctx = context.WithValue(ctx, key, logger{base: lg})
 
-			ww := middleware.NewWrapResponseWriter(rw, r.ProtoMajor)
 			start := time.Now()
 			w := &writerProxy{ResponseWriter: rw}
 
@@ -91,14 +95,11 @@ func TraceMiddleware(lg *zap.Logger, m *metric.Metrics, t oteltrace.Tracer, debu
 					zap.String("trace_id", oteltrace.SpanContextFromContext(ctx).TraceID().String()),
 					zap.String("span_id", oteltrace.SpanContextFromContext(ctx).SpanID().String()),
 					zap.String("remote_ip", r.RemoteAddr),
-					zap.String("url", r.URL.Path),
+					zap.String("url.full", r.URL.Path),
 					zap.String("proto", r.Proto),
 					zap.String("method", r.Method),
-					zap.String("user_agent", r.Header.Get("User-Agent")),
-					zap.Int("status", ww.Status()),
+					zap.String("user_agent.os.full_name", r.Header.Get("User-Agent")),
 					zap.Float64("latency_ms", float64(timeEnd.Sub(start).Nanoseconds())/nanosecInMillisec),
-					zap.String("bytes_in", r.Header.Get("Content-Length")),
-					zap.Int("bytes_out", ww.BytesWritten()),
 				}
 
 				if debugHeaders {

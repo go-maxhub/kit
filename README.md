@@ -33,4 +33,5 @@ Friendly framework with high-performance and strong-extensibility for building m
 | Default jaeger host | localhost:4318 |                    |
 | Default GRPC header |                | `application/grpc` |
 | Fgprof address      | 0.0.0.0:6060   | /debug/fgprof      |
-| Pprof address       | 0.0.0.0:9090   | /debug/pprof/*     |
+| Pprof address       | 0.0.0.0:8080   | /debug/pprof/*     |
+| Prometheus address  | 0.0.0.0:9090   | /metrics           |
