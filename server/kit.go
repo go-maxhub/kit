@@ -3,6 +3,7 @@ package kit
 import (
 	"context"
 	"errors"
+	"github.com/go-chi/chi/v5/middleware"
 	"log"
 	"net"
 	"net/http"
@@ -127,11 +128,8 @@ func (s *Server) defaultConfig() {
 	if s.grpcAddr == "" {
 		s.grpcAddr = defaultGRPCAddr
 	}
-	if s.fgprofAddr == "" {
-		s.fgprofAddr = defaultFgrpofAddr
-	} else {
-		s.fgprofAddr = "0.0.0.0" + s.EnvVars.FgprofPort
-	}
+	s.fgprofAddr = defaultFgrpofAddr
+
 	s.ChiServer.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		_, err := w.Write([]byte("OK"))
 		if err != nil {
@@ -324,6 +322,11 @@ func (s *Server) Start() error {
 			}
 			return nil
 		})
+	}
+
+	if s.EnvVars.PprofEnable {
+		s.DefaultLogger.Info("Starting pprof endpoint...")
+		s.ChiServer.Mount("/debug", middleware.Profiler())
 	}
 
 	g.Go(func() error {

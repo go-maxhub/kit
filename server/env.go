@@ -16,7 +16,8 @@ type Env struct {
 	OTELJaegerHost string `env:"KIT_TRACING_JAEGER_HOST" envDefault:"localhost:4318"`
 
 	FgprofEnable bool   `env:"KIT_METRICS_FGPROF" envDefault:"false"`
-	FgprofPort   string `env:"KIT_TRACING_FGPROF_PORT" envDefault:"6060"`
+
+	PprofEnable bool `env:"KIT_METRICS_PPROF" envDefault:"false"`
 }
 
 func initEnvVars(lg *zap.Logger) (Env, error) {
