@@ -78,7 +78,7 @@ func TraceMiddleware(lg *zap.Logger, m *metric.Metrics, t oteltrace.Tracer, debu
 						w.Header().Set("Message", "Internal kit error: panic recovered")
 					}
 					span.AddEvent("Panic recovered",
-						oteltrace.WithStackTrace(true),
+						oteltrace.WithStackTrace(false),
 					)
 					span.SetStatus(codes.Error, "Panic recovered")
 				}
