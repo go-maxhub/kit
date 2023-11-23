@@ -1,4 +1,4 @@
-module kit
+module github.com/go-maxhub/kit
 
 go 1.21.0
 
