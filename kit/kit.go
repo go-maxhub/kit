@@ -27,10 +27,10 @@ import (
 	zapl "go.uber.org/zap"
 	grpccore "google.golang.org/grpc"
 
-	"kit/kit/metric"
-	"kit/kit/servers/chi"
-	"kit/kit/servers/gin"
-	"kit/kit/servers/grpc"
+	"github.com/go-maxhub/kit/kit/metric"
+	"github.com/go-maxhub/kit/kit/servers/chi"
+	"github.com/go-maxhub/kit/kit/servers/gin"
+	"github.com/go-maxhub/kit/kit/servers/grpc"
 )
 
 const (
@@ -59,7 +59,7 @@ type Server struct {
 	ServerName    string
 	ServerVersion string
 
-	EnvVars Env
+	envVars Env
 
 	RootCtx context.Context
 
@@ -80,7 +80,7 @@ type Server struct {
 
 	// Metrics
 	fgprofServer   http.Handler
-	fgprofAddr     string
+
 	promRegistry   *prometheus.Registry
 	PromCollectors []prometheus.Collector
 
@@ -105,7 +105,7 @@ func New(options ...func(*Server)) *Server {
 	if err != nil {
 		panic(err)
 	}
-	srv.EnvVars = envVars
+	srv.envVars = envVars
 
 	for _, o := range options {
 		o(srv)
@@ -128,7 +128,6 @@ func (s *Server) defaultConfig() {
 	if s.grpcAddr == "" {
 		s.grpcAddr = defaultGRPCAddr
 	}
-	s.fgprofAddr = defaultFgrpofAddr
 
 	s.ChiServer.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		_, err := w.Write([]byte("OK"))
@@ -136,7 +135,7 @@ func (s *Server) defaultConfig() {
 			return
 		}
 	})
-	s.ServerVersion = s.EnvVars.ServerVersion
+	s.ServerVersion = s.envVars.ServerVersion
 	s.fgprofServer = fgprof.Handler()
 }
 
@@ -196,7 +195,7 @@ func (s *Server) Start() error {
 	s.DefaultLogger.Info("Initialized with ports",
 		zapl.String("http.httpAddr", s.httpAddr),
 		zapl.String("grpc.httpAddr", s.grpcAddr),
-		zapl.String("fgprof.httpAddr", s.fgprofAddr),
+		zapl.String("fgprof.httpAddr", defaultFgrpofAddr),
 		zapl.String("prometheus.httpAddr", defaultPromAddr),
 	)
 
@@ -313,18 +312,18 @@ func (s *Server) Start() error {
 		s.DefaultLogger.Info("No servers evaluated in service options or something goes wrong.")
 	}
 
-	if s.EnvVars.FgprofEnable {
+	if s.envVars.FgprofEnable {
 		s.DefaultLogger.Info("Starting fgprof endpoint...")
 		http.DefaultServeMux.Handle(fgprofUrl, s.fgprofServer)
 		g.Go(func() error {
-			if err := http.ListenAndServe(s.fgprofAddr, nil); err != nil {
+			if err := http.ListenAndServe(defaultFgrpofAddr, nil); err != nil {
 				s.DefaultLogger.Error("init fgprof kit", zapl.Error(err))
 			}
 			return nil
 		})
 	}
 
-	if s.EnvVars.PprofEnable {
+	if s.envVars.PprofEnable {
 		s.DefaultLogger.Info("Starting pprof endpoint...")
 		s.ChiServer.Mount("/debug", middleware.Profiler())
 	}
@@ -348,8 +347,8 @@ func (s *Server) Start() error {
 		}
 		// Context is canceled, giving application time to shut down gracefully.
 		s.DefaultLogger.Info("Graceful shutdown initiated, waiting to terminate...")
-		s.DefaultLogger.Info("Graceful shutdown config", zapl.String("gs.duration", s.EnvVars.GracefulShutdownTimeout.String()))
-		time.Sleep(s.EnvVars.GracefulShutdownTimeout)
+		s.DefaultLogger.Info("Graceful shutdown config", zapl.String("gs.duration", s.envVars.GracefulShutdownTimeout.String()))
+		time.Sleep(s.envVars.GracefulShutdownTimeout)
 
 		// Probably deadlock, forcing shutdown.
 		s.DefaultLogger.Fatal("Service terminated gracefully!")
@@ -434,7 +433,7 @@ func WithGinServer(cfg gin.Config) func(*Server) {
 // WithChiServer provides chi http kit and runs it after Start.
 func WithChiServer(cfg chi.Config) func(*Server) {
 	return func(s *Server) {
-		srv, tp := cfg.NewDefaultChi(s.RootCtx, s.DefaultLogger, s.ServerName, s.ServerVersion, s.EnvVars.OTELJaegerHost)
+		srv, tp := cfg.NewDefaultChi(s.RootCtx, s.DefaultLogger, s.ServerName, s.ServerVersion, s.envVars.OTELJaegerHost)
 		s.ChiServer = srv
 		s.tp = tp
 	}

@@ -14,8 +14,8 @@ import (
 	oteltrace "go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 
-	"kit/kit/metric"
-	"kit/kit/trace"
+	"github.com/go-maxhub/kit/kit/metric"
+	"github.com/go-maxhub/kit/kit/trace"
 )
 
 type Config struct {

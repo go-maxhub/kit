@@ -2,6 +2,8 @@ package metric
 
 import (
 	"context"
+	"sync"
+
 	"github.com/go-faster/errors"
 	"github.com/go-logr/zapr"
 	"github.com/prometheus/client_golang/prometheus"
@@ -17,7 +19,6 @@ import (
 	sdkresource "go.opentelemetry.io/otel/sdk/resource"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
-	"sync"
 )
 
 const (

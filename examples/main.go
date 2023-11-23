@@ -11,10 +11,10 @@ import (
 	zapl "go.uber.org/zap"
 	"google.golang.org/grpc/reflection"
 
-	kitgrpc "kit/examples/proto"
-	kit "kit/kit"
-	"kit/kit/servers/chi"
-	"kit/kit/servers/grpc"
+	kitgrpc "github.com/go-maxhub/kit/examples/proto"
+	kit "github.com/go-maxhub/kit/kit"
+	"github.com/go-maxhub/kit/kit/servers/chi"
+	"github.com/go-maxhub/kit/kit/servers/grpc"
 )
 
 type server struct {
