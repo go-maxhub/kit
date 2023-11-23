@@ -2,10 +2,6 @@ package chi
 
 import (
 	"context"
-	"net/http"
-	"time"
-	"unsafe"
-
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/riandyrn/otelchi"
@@ -14,6 +10,8 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	oteltrace "go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
+	"net/http"
+	"time"
 
 	"github.com/go-maxhub/kit/kit/metric"
 	"github.com/go-maxhub/kit/kit/trace"
@@ -44,10 +42,6 @@ type logger struct {
 func (w *writerProxy) WriteHeader(statusCode int) {
 	w.ResponseWriter.WriteHeader(statusCode)
 	w.status = statusCode
-}
-
-func byteToString(b []byte) string {
-	return *(*string)(unsafe.Pointer(&b))
 }
 
 func TraceMiddleware(lg *zap.Logger, m *metric.Metrics, t oteltrace.Tracer, debugHeaders bool) Middleware {
@@ -113,6 +107,7 @@ func TraceMiddleware(lg *zap.Logger, m *metric.Metrics, t oteltrace.Tracer, debu
 			}()
 
 			next.ServeHTTP(w, r.WithContext(ctx))
+
 		})
 	}
 }
