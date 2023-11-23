@@ -15,13 +15,14 @@ Friendly framework with high-performance and strong-extensibility for building m
 
 ## Environment variables to use
 
-| Name                              | Description                  | Example            | Default          |
-|-----------------------------------|------------------------------|--------------------|------------------|
-| `KIT_SERVER_VERSION`              | Server version(for logs)     | `0.0.1`            | `0.0.0`          |
-| `KIT_GRACEFUL_SHUTDOWN`           | Shutdown timeout             | `10s`              | `5s`             |
-| `KIT_TRACING_JAEGER_HOST`         | Jaeger host to export traces | `jaeger_host:4318` | `localhost:4318` |
-| `KIT_METRICS_FGPROF`              | Enable fgprof                | `true`             | `false`          |
-| `KIT_METRICS_PPROF`               | Enable pprof                 | `true`             | `false`          | 
+| Name                              | Description                              | Example            | Default          |
+|-----------------------------------|------------------------------------------|--------------------|------------------|
+| `KIT_SERVER_VERSION`              | Server version(for logs)                 | `0.0.1`            | `0.0.0`          |
+| `KIT_GRACEFUL_SHUTDOWN`           | Shutdown timeout                         | `10s`              | `5s`             |
+| `KIT_TRACING_JAEGER_HOST`         | Jaeger host to export traces             | `jaeger_host:4318` | `localhost:4318` |
+| `KIT_METRICS_FGPROF`              | Enable fgprof                            | `true`             | `false`          |
+| `KIT_METRICS_PPROF`               | Enable pprof                             | `true`             | `false`          | 
+| `KIT_DEBUG_HEADERS`               | Prints in logs !all! headers of requests | `true`             | `false`          |
 
 ## Default configuration
 

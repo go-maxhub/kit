@@ -79,7 +79,7 @@ type Server struct {
 	DefaultLogger *zapl.Logger
 
 	// Metrics
-	fgprofServer   http.Handler
+	fgprofServer http.Handler
 
 	promRegistry   *prometheus.Registry
 	PromCollectors []prometheus.Collector
@@ -433,7 +433,7 @@ func WithGinServer(cfg gin.Config) func(*Server) {
 // WithChiServer provides chi http kit and runs it after Start.
 func WithChiServer(cfg chi.Config) func(*Server) {
 	return func(s *Server) {
-		srv, tp := cfg.NewDefaultChi(s.RootCtx, s.DefaultLogger, s.ServerName, s.ServerVersion, s.envVars.OTELJaegerHost)
+		srv, tp := cfg.NewDefaultChi(s.RootCtx, s.DefaultLogger, s.ServerName, s.ServerVersion, s.envVars.OTELJaegerHost, s.envVars.DebugHeaders)
 		s.ChiServer = srv
 		s.tp = tp
 	}

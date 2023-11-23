@@ -45,7 +45,7 @@ func (w *writerProxy) WriteHeader(statusCode int) {
 	w.status = statusCode
 }
 
-func TraceMiddleware(lg *zap.Logger, m *metric.Metrics, t oteltrace.Tracer) Middleware {
+func TraceMiddleware(lg *zap.Logger, m *metric.Metrics, t oteltrace.Tracer, debugHeaders bool) Middleware {
 	const nanosecInMillisec = float64(time.Millisecond)
 
 	var key struct{}
@@ -100,6 +100,14 @@ func TraceMiddleware(lg *zap.Logger, m *metric.Metrics, t oteltrace.Tracer) Midd
 					zap.String("bytes_in", r.Header.Get("Content-Length")),
 					zap.Int("bytes_out", ww.BytesWritten()),
 				}
+
+				if debugHeaders {
+					for name, values := range r.Header {
+						for _, value := range values {
+							zFields = append(zFields, zap.String("header."+name, value))
+						}
+					}
+				}
 				lg.Info("incoming_request", zFields...)
 			}()
 
@@ -108,7 +116,7 @@ func TraceMiddleware(lg *zap.Logger, m *metric.Metrics, t oteltrace.Tracer) Midd
 	}
 }
 
-func (c *Config) NewDefaultChi(ctx context.Context, lg *zap.Logger, serverName, serverVersion, jaegerHost string) (*chi.Mux, *sdktrace.TracerProvider) {
+func (c *Config) NewDefaultChi(ctx context.Context, lg *zap.Logger, serverName, serverVersion, jaegerHost string, debugHeaders bool) (*chi.Mux, *sdktrace.TracerProvider) {
 	tracer, tp := trace.InitChiTracerProvider(ctx, lg, serverName, serverVersion, jaegerHost)
 
 	m, err := metric.NewMetrics(ctx, lg.Named("kit.metrics"))
@@ -123,7 +131,7 @@ func (c *Config) NewDefaultChi(ctx context.Context, lg *zap.Logger, serverName, 
 		middleware.RequestID,
 		middleware.Timeout(60*time.Second),
 		middleware.RealIP,
-		TraceMiddleware(lg, m, *tracer),
+		TraceMiddleware(lg, m, *tracer, debugHeaders),
 		otelchi.Middleware(serverName, otelchi.WithChiRoutes(cl)),
 	)
 	return cl, tp
