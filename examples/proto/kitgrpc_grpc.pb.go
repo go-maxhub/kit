@@ -47,7 +47,7 @@ func (c *senderClient) SendMessage(ctx context.Context, in *SendRequest, opts ..
 	return out, nil
 }
 
-// SenderServer is the server API for Sender service.
+// SenderServer is the kit API for Sender service.
 // All implementations must embed UnimplementedSenderServer
 // for forward compatibility
 type SenderServer interface {

@@ -27,10 +27,10 @@ import (
 	zapl "go.uber.org/zap"
 	grpccore "google.golang.org/grpc"
 
-	"kit/server/metric"
-	"kit/server/servers/chi"
-	"kit/server/servers/gin"
-	"kit/server/servers/grpc"
+	"kit/kit/metric"
+	"kit/kit/servers/chi"
+	"kit/kit/servers/gin"
+	"kit/kit/servers/grpc"
 )
 
 const (
@@ -143,13 +143,13 @@ func (s *Server) defaultConfig() {
 // validateServers validate servers to prevent usage of nil client.
 func (s *Server) validateServers() {
 	if s.ChiServer == nil {
-		s.DefaultLogger.Info("!ATTENTION! chi server is not initialized")
+		s.DefaultLogger.Info("!ATTENTION! chi kit is not initialized")
 	}
 	if s.GRPCServer == nil {
-		s.DefaultLogger.Info("!ATTENTION! grpc server is not initialized")
+		s.DefaultLogger.Info("!ATTENTION! grpc kit is not initialized")
 	}
 	if s.GinServer == nil {
-		s.DefaultLogger.Info("!ATTENTION! gin server is not initialized")
+		s.DefaultLogger.Info("!ATTENTION! gin kit is not initialized")
 	}
 }
 
@@ -188,7 +188,7 @@ func (s *Server) Start() error {
 	http.Handle("/metrics", promhttp.Handler())
 	g.Go(func() error {
 		if err := http.ListenAndServe(defaultPromAddr, nil); err != nil {
-			s.DefaultLogger.Error("init prometheus server", zapl.Error(err))
+			s.DefaultLogger.Error("init prometheus kit", zapl.Error(err))
 		}
 		return nil
 	})
@@ -215,7 +215,7 @@ func (s *Server) Start() error {
 			defer s.DefaultLogger.Info("Server stopped.")
 
 			if err = http1Server.Serve(lis); err != nil && !errors.Is(err, http.ErrServerClosed) {
-				s.DefaultLogger.Fatal("start chi and grpc server", zapl.Error(err))
+				s.DefaultLogger.Fatal("start chi and grpc kit", zapl.Error(err))
 			}
 			return nil
 		})
@@ -233,7 +233,7 @@ func (s *Server) Start() error {
 		g.Go(func() error {
 			defer s.DefaultLogger.Info("Server stopped.")
 			if err := http1Server.Serve(lis); err != nil && !errors.Is(err, http.ErrServerClosed) {
-				s.DefaultLogger.Fatal("start gin and grpc server", zapl.Error(err))
+				s.DefaultLogger.Fatal("start gin and grpc kit", zapl.Error(err))
 			}
 			return nil
 		})
@@ -246,7 +246,7 @@ func (s *Server) Start() error {
 		g.Go(func() error {
 			defer s.DefaultLogger.Info("Server stopped.")
 			if err := s.GRPCServer.Serve(lis); err != nil && !errors.Is(err, http.ErrServerClosed) {
-				s.DefaultLogger.Fatal("start grpc server", zapl.Error(err))
+				s.DefaultLogger.Fatal("start grpc kit", zapl.Error(err))
 			}
 			s.DefaultLogger.Info("Init chi and grpc")
 			return nil
@@ -254,7 +254,7 @@ func (s *Server) Start() error {
 		g.Go(func() error {
 			defer s.DefaultLogger.Info("Server stopped.")
 			if err := http.ListenAndServe(s.httpAddr, s.ChiServer); err != nil && !errors.Is(err, http.ErrServerClosed) {
-				s.DefaultLogger.Fatal("start chi server", zapl.Error(err))
+				s.DefaultLogger.Fatal("start chi kit", zapl.Error(err))
 			}
 			return nil
 		})
@@ -267,19 +267,19 @@ func (s *Server) Start() error {
 		g.Go(func() error {
 			defer s.DefaultLogger.Info("Server stopped.")
 			if err = s.GRPCServer.Serve(lis); err != nil && !errors.Is(err, http.ErrServerClosed) {
-				s.DefaultLogger.Fatal("start grpc server", zapl.Error(err))
+				s.DefaultLogger.Fatal("start grpc kit", zapl.Error(err))
 			}
 			return nil
 		})
 		g.Go(func() error {
 			defer s.DefaultLogger.Info("Server stopped.")
 			if err = s.GinServer.Run(s.httpAddr); err != nil && !errors.Is(err, http.ErrServerClosed) {
-				s.DefaultLogger.Fatal("start gin server", zapl.Error(err))
+				s.DefaultLogger.Fatal("start gin kit", zapl.Error(err))
 			}
 			return nil
 		})
 	case s.GRPCServer != &grpccore.Server{} && !s.parallelMode:
-		s.DefaultLogger.Info("Initialized grpc server")
+		s.DefaultLogger.Info("Initialized grpc kit")
 		lis, err := net.Listen("tcp", s.grpcAddr)
 		if err != nil {
 			panic(err)
@@ -287,25 +287,25 @@ func (s *Server) Start() error {
 		g.Go(func() error {
 			defer s.DefaultLogger.Info("Server stopped.")
 			if err = s.GRPCServer.Serve(lis); err != nil && !errors.Is(err, http.ErrServerClosed) {
-				s.DefaultLogger.Fatal("start grpc server", zapl.Error(err))
+				s.DefaultLogger.Fatal("start grpc kit", zapl.Error(err))
 			}
 			return nil
 		})
 	case s.GinServer != &gincore.Engine{} && !s.parallelMode:
-		s.DefaultLogger.Info("Initialized gin server")
+		s.DefaultLogger.Info("Initialized gin kit")
 		g.Go(func() error {
 			defer s.DefaultLogger.Info("Server stopped.")
 			if err := s.GinServer.Run(s.httpAddr); err != nil && !errors.Is(err, http.ErrServerClosed) {
-				s.DefaultLogger.Fatal("start gin server", zapl.Error(err))
+				s.DefaultLogger.Fatal("start gin kit", zapl.Error(err))
 			}
 			return nil
 		})
 	case s.ChiServer != &chicore.Mux{} && !s.parallelMode:
-		s.DefaultLogger.Info("Initialized chi server")
+		s.DefaultLogger.Info("Initialized chi kit")
 		g.Go(func() error {
 			defer s.DefaultLogger.Info("Server stopped.")
 			if err := http.ListenAndServe(s.httpAddr, s.ChiServer); err != nil && !errors.Is(err, http.ErrServerClosed) {
-				s.DefaultLogger.Fatal("start chi server", zapl.Error(err))
+				s.DefaultLogger.Fatal("start chi kit", zapl.Error(err))
 			}
 			return nil
 		})
@@ -318,7 +318,7 @@ func (s *Server) Start() error {
 		http.DefaultServeMux.Handle(fgprofUrl, s.fgprofServer)
 		g.Go(func() error {
 			if err := http.ListenAndServe(s.fgprofAddr, nil); err != nil {
-				s.DefaultLogger.Error("init fgprof server", zapl.Error(err))
+				s.DefaultLogger.Error("init fgprof kit", zapl.Error(err))
 			}
 			return nil
 		})
@@ -379,14 +379,14 @@ func WithServerName(name string) func(*Server) {
 	return func(s *Server) {
 		switch {
 		case name == "":
-			panic("server name evaluated, but not defined")
+			panic("kit name evaluated, but not defined")
 		default:
 			s.ServerName = name
 		}
 	}
 }
 
-// WithHTTPServerPort sets provided port to http server.
+// WithHTTPServerPort sets provided port to http kit.
 func WithHTTPServerPort(port string) func(*Server) {
 	return func(s *Server) {
 		switch {
@@ -398,7 +398,7 @@ func WithHTTPServerPort(port string) func(*Server) {
 	}
 }
 
-// WithGRPCServerPort sets provided port to grpc server.
+// WithGRPCServerPort sets provided port to grpc kit.
 func WithGRPCServerPort(port string) func(*Server) {
 	return func(s *Server) {
 		switch {
@@ -417,7 +417,7 @@ func WithParallelMode() func(*Server) {
 	}
 }
 
-// WithGinServer provides gin http server and runs it after Start.
+// WithGinServer provides gin http kit and runs it after Start.
 func WithGinServer(cfg gin.Config) func(*Server) {
 	return func(s *Server) {
 		switch {
@@ -431,7 +431,7 @@ func WithGinServer(cfg gin.Config) func(*Server) {
 	}
 }
 
-// WithChiServer provides chi http server and runs it after Start.
+// WithChiServer provides chi http kit and runs it after Start.
 func WithChiServer(cfg chi.Config) func(*Server) {
 	return func(s *Server) {
 		srv, tp := cfg.NewDefaultChi(s.RootCtx, s.DefaultLogger, s.ServerName, s.ServerVersion, s.EnvVars.OTELJaegerHost)
@@ -440,7 +440,7 @@ func WithChiServer(cfg chi.Config) func(*Server) {
 	}
 }
 
-// WithGRPCServer provides grpc server and runs it after Start.
+// WithGRPCServer provides grpc kit and runs it after Start.
 func WithGRPCServer(cfg grpc.Config) func(*Server) {
 	return func(s *Server) {
 		switch {
@@ -480,7 +480,7 @@ func WithBeforeStop(funcs []func() error) func(*Server) {
 	}
 }
 
-// WithCustomGoroutines adds goroutines to main errgroup instance of server.
+// WithCustomGoroutines adds goroutines to main errgroup instance of kit.
 func WithCustomGoroutines(funcs []func() error) func(*Server) {
 	return func(s *Server) {
 		s.customGoroutines = funcs

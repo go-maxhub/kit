@@ -12,9 +12,9 @@ import (
 	"google.golang.org/grpc/reflection"
 
 	kitgrpc "kit/examples/proto"
-	kit "kit/server"
-	"kit/server/servers/chi"
-	"kit/server/servers/grpc"
+	kit "kit/kit"
+	"kit/kit/servers/chi"
+	"kit/kit/servers/grpc"
 )
 
 type server struct {
@@ -61,6 +61,6 @@ func main() {
 	})
 
 	if err := svc.Start(); err != nil {
-		svc.DefaultLogger.Error("start server", zapl.Error(err))
+		svc.DefaultLogger.Error("start kit", zapl.Error(err))
 	}
 }

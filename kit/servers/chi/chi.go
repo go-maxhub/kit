@@ -14,8 +14,8 @@ import (
 	oteltrace "go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 
-	"kit/server/metric"
-	"kit/server/trace"
+	"kit/kit/metric"
+	"kit/kit/trace"
 )
 
 type Config struct {
@@ -75,7 +75,7 @@ func TraceMiddleware(lg *zap.Logger, m *metric.Metrics, t oteltrace.Tracer) Midd
 						lg.Debug("Writing error response")
 						w.Header().Set("Content-Type", "application/json")
 						w.WriteHeader(http.StatusInternalServerError)
-						w.Header().Set("Message", "Internal server error: panic recovered")
+						w.Header().Set("Message", "Internal kit error: panic recovered")
 					}
 					span.AddEvent("Panic recovered",
 						oteltrace.WithStackTrace(true),
