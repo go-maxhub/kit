@@ -174,13 +174,13 @@ func (s *Server) Start() error {
 		"OTEL options",
 		zapl.String("KIT_TRACING_JAEGER_HOST", os.Getenv("KIT_TRACING_JAEGER_HOST")),
 	)
+
+	g, ctx := errgroup.WithContext(ctx)
 	defer func() {
-		if err := s.tp.Shutdown(s.RootCtx); err != nil {
+		if err := s.tp.Shutdown(ctx); err != nil {
 			log.Printf("shutdown tracer provider: %v", err)
 		}
 	}()
-
-	g, ctx := errgroup.WithContext(ctx)
 
 	s.DefaultLogger.Info("Starting prometheus metric endpoint...")
 	s.promRegistry.MustRegister(s.PromCollectors...)

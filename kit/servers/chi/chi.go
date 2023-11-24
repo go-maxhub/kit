@@ -5,9 +5,11 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/riandyrn/otelchi"
+	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/propagation"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	semconv "go.opentelemetry.io/otel/semconv/v1.12.0"
 	oteltrace "go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 	"net/http"
@@ -44,13 +46,15 @@ func (w *writerProxy) WriteHeader(statusCode int) {
 	w.status = statusCode
 }
 
-func TraceMiddleware(lg *zap.Logger, m *metric.Metrics, t oteltrace.Tracer, debugHeaders bool) Middleware {
+func TraceMiddleware(lg *zap.Logger, m *metric.Metrics, tp *sdktrace.TracerProvider, debugHeaders bool) Middleware {
 	const nanosecInMillisec = float64(time.Millisecond)
 
 	var key struct{}
 	var p = m.TextMapPropagator()
 
 	return func(next http.Handler) http.Handler {
+		t := tp.Tracer("http")
+		propagator := otel.GetTextMapPropagator()
 		return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
 			ctx = context.WithValue(ctx, key, logger{base: lg})
@@ -59,11 +63,18 @@ func TraceMiddleware(lg *zap.Logger, m *metric.Metrics, t oteltrace.Tracer, debu
 			w := &writerProxy{ResponseWriter: rw}
 
 			ctx = p.Extract(ctx, propagation.HeaderCarrier(r.Header))
-			ctx, span := t.Start(ctx, "HTTP")
+			ctx, span := t.Start(
+				ctx,
+				"HTTP",
+				oteltrace.WithSpanKind(oteltrace.SpanKindServer),
+				oteltrace.WithAttributes(semconv.HTTPServerAttributesFromHTTPRequest(
+					"kit", "HTTP", r)...))
+
 			defer span.End()
 
 			if sc := oteltrace.SpanContextFromContext(ctx); sc.IsValid() {
 				w.Header().Set("trace-id", sc.TraceID().String())
+				w.Header().Set("span-id", sc.SpanID().String())
 			}
 
 			defer func() {
@@ -106,6 +117,8 @@ func TraceMiddleware(lg *zap.Logger, m *metric.Metrics, t oteltrace.Tracer, debu
 				lg.Info("incoming_request", zFields...)
 			}()
 
+			propagator.Inject(ctx, propagation.HeaderCarrier(w.Header()))
+
 			next.ServeHTTP(w, r.WithContext(ctx))
 
 		})
@@ -113,7 +126,7 @@ func TraceMiddleware(lg *zap.Logger, m *metric.Metrics, t oteltrace.Tracer, debu
 }
 
 func (c *Config) NewDefaultChi(ctx context.Context, lg *zap.Logger, serverName, serverVersion, jaegerHost string, debugHeaders bool) (*chi.Mux, *sdktrace.TracerProvider) {
-	tracer, tp := trace.InitChiTracerProvider(ctx, lg, serverName, serverVersion, jaegerHost)
+	tp := trace.InitChiTracerProvider(ctx, lg, serverName, serverVersion, jaegerHost)
 
 	m, err := metric.NewMetrics(ctx, lg.Named("kit.metrics"))
 	if err != nil {
@@ -127,7 +140,7 @@ func (c *Config) NewDefaultChi(ctx context.Context, lg *zap.Logger, serverName, 
 		middleware.RequestID,
 		middleware.Timeout(60*time.Second),
 		middleware.RealIP,
-		TraceMiddleware(lg, m, *tracer, debugHeaders),
+		TraceMiddleware(lg, m, tp, debugHeaders),
 		otelchi.Middleware(serverName, otelchi.WithChiRoutes(cl)),
 	)
 	return cl, tp

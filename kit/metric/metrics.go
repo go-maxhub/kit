@@ -17,6 +17,7 @@ import (
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdkresource "go.opentelemetry.io/otel/sdk/resource"
+	oteltrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 )
@@ -87,20 +88,6 @@ type Metrics struct {
 	propagator propagation.TextMapPropagator
 }
 
-func (m *Metrics) MeterProvider() metric.MeterProvider {
-	if m.meterProvider == nil {
-		return otel.GetMeterProvider()
-	}
-	return m.meterProvider
-}
-
-func (m *Metrics) TracerProvider() trace.TracerProvider {
-	if m.tracerProvider == nil {
-		return trace.NewNoopTracerProvider()
-	}
-	return m.tracerProvider
-}
-
 func (m *Metrics) TextMapPropagator() propagation.TextMapPropagator {
 	return m.propagator
 }
@@ -146,10 +133,24 @@ func NewMetrics(
 		lg:       lg,
 		resource: res,
 	}
+	{
+		//provider, stop, err := autotracer.NewTracerProvider(ctx,
+		//	include(tracerOptions,
+		//		autotracer.WithResource(res),
+		//	)...,
+		//)
+		//if err != nil {
+		//	return nil, errors.Wrap(err, "tracer provider")
+		//}
+		//m.tracerProvider = provider
+		//m.registerShutdown("tracer", stop)
+	}
 	m.propagator = autoprop.NewTextMapPropagator()
+	m.tracerProvider = oteltrace.NewTracerProvider()
+	m.meterProvider = otel.GetMeterProvider()
 
-	otel.SetMeterProvider(m.MeterProvider())
-	otel.SetTracerProvider(m.TracerProvider())
+	otel.SetMeterProvider(m.meterProvider)
+	otel.SetTracerProvider(m.tracerProvider)
 	otel.SetTextMapPropagator(m.TextMapPropagator())
 
 	lg.Info("Metrics initialized")

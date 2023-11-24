@@ -24,4 +24,3 @@ grpc_ls:
 
 mod:
 	go mod tidy
-	go mod vendor

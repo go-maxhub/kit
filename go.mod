@@ -12,6 +12,7 @@ require (
 	github.com/prometheus/client_golang v1.17.0
 	github.com/riandyrn/otelchi v0.5.1
 	go.opentelemetry.io/contrib/propagators/autoprop v0.43.0
+	go.opentelemetry.io/contrib/propagators/jaeger v1.18.0
 	go.opentelemetry.io/otel v1.21.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.21.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.21.0
@@ -62,7 +63,6 @@ require (
 	go.opentelemetry.io/contrib v1.0.0 // indirect
 	go.opentelemetry.io/contrib/propagators/aws v1.18.0 // indirect
 	go.opentelemetry.io/contrib/propagators/b3 v1.18.0 // indirect
-	go.opentelemetry.io/contrib/propagators/jaeger v1.18.0 // indirect
 	go.opentelemetry.io/contrib/propagators/ot v1.18.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.0.0 // indirect
 	go.uber.org/goleak v1.2.1 // indirect
