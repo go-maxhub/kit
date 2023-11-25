@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"log"
 	"net"
 	"net/http"
@@ -14,7 +15,6 @@ import (
 
 	"github.com/felixge/fgprof"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 	"golang.org/x/sync/errgroup"
@@ -62,6 +62,8 @@ type Server struct {
 	envVars Env
 
 	RootCtx context.Context
+
+	servers []func() error
 
 	httpAddr  string
 	GinServer *gincore.Engine
@@ -152,6 +154,137 @@ func (s *Server) validateServers() {
 	}
 }
 
+func (s *Server) AddGracefulShutdown(ctx context.Context) {
+	gs := func() error {
+		// Guaranteed way to kill application.
+		if len(s.beforeStop) > 0 {
+			for _, fn := range s.beforeStop {
+				if err := fn(); err != nil {
+					s.DefaultLogger.Error("before stop func", zapl.Error(err))
+				}
+			}
+		}
+		<-ctx.Done()
+		if len(s.afterStop) > 0 {
+			for _, fn := range s.afterStop {
+				if err := fn(); err != nil {
+					s.DefaultLogger.Error("after stop func", zapl.Error(err))
+				}
+			}
+		}
+		// Context is canceled, giving application time to shut down gracefully.
+		s.DefaultLogger.Info("Graceful shutdown initiated, waiting to terminate...")
+		s.DefaultLogger.Info("Graceful shutdown config", zapl.String("gs.duration", s.envVars.GracefulShutdownTimeout.String()))
+		time.Sleep(s.envVars.GracefulShutdownTimeout)
+
+		// Probably deadlock, forcing shutdown.
+		s.DefaultLogger.Fatal("Service terminated gracefully!")
+
+		return nil
+	}
+	s.servers = append(s.servers, gs)
+}
+
+func (s *Server) AddFgprofServer() {
+	s.DefaultLogger.Info("Starting fgprof endpoint...")
+	http.DefaultServeMux.Handle(fgprofUrl, s.fgprofServer)
+	fs := func() error {
+		if err := http.ListenAndServe(defaultFgrpofAddr, nil); err != nil {
+			s.DefaultLogger.Error("init fgprof kit", zapl.Error(err))
+		}
+		return nil
+	}
+	s.servers = append(s.servers, fs)
+}
+
+func (s *Server) AddPrometheusServer() {
+	s.DefaultLogger.Info("Starting prometheus metric endpoint...")
+	s.promRegistry.MustRegister(s.PromCollectors...)
+	http.Handle("/metrics", promhttp.Handler())
+	ps := func() error {
+		if err := http.ListenAndServe(defaultPromAddr, nil); err != nil {
+			s.DefaultLogger.Error("init prometheus kit", zapl.Error(err))
+		}
+		return nil
+	}
+	s.servers = append(s.servers, ps)
+}
+
+func (s *Server) AddChiServer() {
+	cs := func() error {
+		defer s.DefaultLogger.Info("Server stopped.")
+		if err := http.ListenAndServe(s.httpAddr, s.ChiServer); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			s.DefaultLogger.Fatal("start chi kit", zapl.Error(err))
+		}
+		return nil
+	}
+	s.servers = append(s.servers, cs)
+}
+
+func (s *Server) AddGRPCServer() {
+	lis, err := net.Listen("tcp", s.grpcAddr)
+	if err != nil {
+		panic(err)
+	}
+	grpcs := func() error {
+		defer s.DefaultLogger.Info("Server stopped.")
+		if err = s.GRPCServer.Serve(lis); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			s.DefaultLogger.Fatal("start grpc kit", zapl.Error(err))
+		}
+		return nil
+	}
+	s.servers = append(s.servers, grpcs)
+}
+
+func (s *Server) AddGinServer() {
+	gs := func() error {
+		defer s.DefaultLogger.Info("Server stopped.")
+		if err := s.GinServer.Run(s.httpAddr); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			s.DefaultLogger.Fatal("start gin kit", zapl.Error(err))
+		}
+		return nil
+	}
+	s.servers = append(s.servers, gs)
+}
+
+func (s *Server) AddChiAndGRPCMixedServer() {
+	mh := mixHTTPAndGRPC(s.ChiServer, s.GRPCServer)
+	http2Server := &http2.Server{}
+	http1Server := &http.Server{Handler: h2c.NewHandler(mh, http2Server)}
+	lis, err := net.Listen("tcp", s.httpAddr)
+	if err != nil {
+		panic(err)
+	}
+	ms := func() error {
+		defer s.DefaultLogger.Info("Server stopped.")
+
+		if err = http1Server.Serve(lis); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			s.DefaultLogger.Fatal("start chi and grpc kit", zapl.Error(err))
+		}
+		return nil
+	}
+	s.servers = append(s.servers, ms)
+}
+
+func (s *Server) AddGinAndGRPCMixedServer() {
+	grpc_health_v1.RegisterHealthServer(s.GRPCServer, health.NewServer())
+	mh := mixHTTPAndGRPC(s.GinServer, s.GRPCServer)
+	http2Server := &http2.Server{}
+	http1Server := &http.Server{Handler: h2c.NewHandler(mh, http2Server)}
+	lis, err := net.Listen("tcp", s.httpAddr)
+	if err != nil {
+		panic(err)
+	}
+	ms := func() error {
+		defer s.DefaultLogger.Info("Server stopped.")
+		if err := http1Server.Serve(lis); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			s.DefaultLogger.Fatal("start gin and grpc kit", zapl.Error(err))
+		}
+		return nil
+	}
+	s.servers = append(s.servers, ms)
+}
+
 // Start runs servers with provided options.
 func (s *Server) Start() error {
 
@@ -176,21 +309,14 @@ func (s *Server) Start() error {
 	)
 
 	g, ctx := errgroup.WithContext(ctx)
+
 	defer func() {
 		if err := s.tp.Shutdown(ctx); err != nil {
 			log.Printf("shutdown tracer provider: %v", err)
 		}
 	}()
 
-	s.DefaultLogger.Info("Starting prometheus metric endpoint...")
-	s.promRegistry.MustRegister(s.PromCollectors...)
-	http.Handle("/metrics", promhttp.Handler())
-	g.Go(func() error {
-		if err := http.ListenAndServe(defaultPromAddr, nil); err != nil {
-			s.DefaultLogger.Error("init prometheus kit", zapl.Error(err))
-		}
-		return nil
-	})
+	s.AddPrometheusServer()
 
 	s.DefaultLogger.Info("Initialized with ports",
 		zapl.String("http.httpAddr", s.httpAddr),
@@ -199,128 +325,8 @@ func (s *Server) Start() error {
 		zapl.String("prometheus.httpAddr", defaultPromAddr),
 	)
 
-	switch {
-	case s.ChiServer != nil && !s.parallelMode:
-		s.DefaultLogger.Info("Initialized chi kit")
-		g.Go(func() error {
-			defer s.DefaultLogger.Info("Server stopped.")
-			if err := http.ListenAndServe(s.httpAddr, s.ChiServer); err != nil && !errors.Is(err, http.ErrServerClosed) {
-				s.DefaultLogger.Fatal("start chi kit", zapl.Error(err))
-			}
-			return nil
-		})
-	case s.GinServer != nil && !s.parallelMode:
-		s.DefaultLogger.Info("Initialized gin kit")
-		g.Go(func() error {
-			defer s.DefaultLogger.Info("Server stopped.")
-			if err := s.GinServer.Run(s.httpAddr); err != nil && !errors.Is(err, http.ErrServerClosed) {
-				s.DefaultLogger.Fatal("start gin kit", zapl.Error(err))
-			}
-			return nil
-		})
-	case s.GRPCServer != nil && !s.parallelMode:
-		s.DefaultLogger.Info("Initialized grpc kit")
-		lis, err := net.Listen("tcp", s.grpcAddr)
-		if err != nil {
-			panic(err)
-		}
-		g.Go(func() error {
-			defer s.DefaultLogger.Info("Server stopped.")
-			if err = s.GRPCServer.Serve(lis); err != nil && !errors.Is(err, http.ErrServerClosed) {
-				s.DefaultLogger.Fatal("start grpc kit", zapl.Error(err))
-			}
-			return nil
-		})
-	case s.ChiServer != nil && s.GRPCServer != nil && s.parallelMode:
-		s.DefaultLogger.Info("Initialized chi and grpc servers, parallel mode")
-		mh := mixHTTPAndGRPC(s.ChiServer, s.GRPCServer)
-		http2Server := &http2.Server{}
-		http1Server := &http.Server{Handler: h2c.NewHandler(mh, http2Server)}
-		lis, err := net.Listen("tcp", s.httpAddr)
-		if err != nil {
-			panic(err)
-		}
-
-		g.Go(func() error {
-			defer s.DefaultLogger.Info("Server stopped.")
-
-			if err = http1Server.Serve(lis); err != nil && !errors.Is(err, http.ErrServerClosed) {
-				s.DefaultLogger.Fatal("start chi and grpc kit", zapl.Error(err))
-			}
-			return nil
-		})
-	case s.GinServer != nil && s.GRPCServer != nil && s.parallelMode:
-		s.DefaultLogger.Info("Initialized gin and grpc servers, parallel mode")
-		grpc_health_v1.RegisterHealthServer(s.GRPCServer, health.NewServer())
-		//pb.RegisterEchoServer(s.GRPCServer, &echoServer{})
-		mh := mixHTTPAndGRPC(s.GinServer, s.GRPCServer)
-		http2Server := &http2.Server{}
-		http1Server := &http.Server{Handler: h2c.NewHandler(mh, http2Server)}
-		lis, err := net.Listen("tcp", s.httpAddr)
-		if err != nil {
-			panic(err)
-		}
-		g.Go(func() error {
-			defer s.DefaultLogger.Info("Server stopped.")
-			if err := http1Server.Serve(lis); err != nil && !errors.Is(err, http.ErrServerClosed) {
-				s.DefaultLogger.Fatal("start gin and grpc kit", zapl.Error(err))
-			}
-			return nil
-		})
-	case s.ChiServer != nil && s.GRPCServer != nil && !s.parallelMode:
-		s.DefaultLogger.Info("Initialized chi and grpc servers, not parallel mode")
-		lis, err := net.Listen("tcp", s.grpcAddr)
-		if err != nil {
-			panic(err)
-		}
-		g.Go(func() error {
-			defer s.DefaultLogger.Info("Server stopped.")
-			if err := s.GRPCServer.Serve(lis); err != nil && !errors.Is(err, http.ErrServerClosed) {
-				s.DefaultLogger.Fatal("start grpc kit", zapl.Error(err))
-			}
-			s.DefaultLogger.Info("Init chi and grpc")
-			return nil
-		})
-		g.Go(func() error {
-			defer s.DefaultLogger.Info("Server stopped.")
-			if err := http.ListenAndServe(s.httpAddr, s.ChiServer); err != nil && !errors.Is(err, http.ErrServerClosed) {
-				s.DefaultLogger.Fatal("start chi kit", zapl.Error(err))
-			}
-			return nil
-		})
-	case s.GinServer != nil && s.GRPCServer != nil && !s.parallelMode:
-		s.DefaultLogger.Info("Initialized gin and grpc servers, not parallel mode")
-		lis, err := net.Listen("tcp", s.grpcAddr)
-		if err != nil {
-			panic(err)
-		}
-		g.Go(func() error {
-			defer s.DefaultLogger.Info("Server stopped.")
-			if err = s.GRPCServer.Serve(lis); err != nil && !errors.Is(err, http.ErrServerClosed) {
-				s.DefaultLogger.Fatal("start grpc kit", zapl.Error(err))
-			}
-			return nil
-		})
-		g.Go(func() error {
-			defer s.DefaultLogger.Info("Server stopped.")
-			if err = s.GinServer.Run(s.httpAddr); err != nil && !errors.Is(err, http.ErrServerClosed) {
-				s.DefaultLogger.Fatal("start gin kit", zapl.Error(err))
-			}
-			return nil
-		})
-	default:
-		s.DefaultLogger.Info("No servers evaluated in service options or something goes wrong.")
-	}
-
 	if s.envVars.FgprofEnable {
-		s.DefaultLogger.Info("Starting fgprof endpoint...")
-		http.DefaultServeMux.Handle(fgprofUrl, s.fgprofServer)
-		g.Go(func() error {
-			if err := http.ListenAndServe(defaultFgrpofAddr, nil); err != nil {
-				s.DefaultLogger.Error("init fgprof kit", zapl.Error(err))
-			}
-			return nil
-		})
+		s.AddFgprofServer()
 	}
 
 	if s.envVars.PprofEnable {
@@ -328,32 +334,7 @@ func (s *Server) Start() error {
 		s.ChiServer.Mount("/debug", middleware.Profiler())
 	}
 
-	g.Go(func() error {
-		// Guaranteed way to kill application.
-		if len(s.beforeStop) > 0 {
-			for _, fn := range s.beforeStop {
-				if err := fn(); err != nil {
-					s.DefaultLogger.Error("before stop func", zapl.Error(err))
-				}
-			}
-		}
-		<-ctx.Done()
-		if len(s.afterStop) > 0 {
-			for _, fn := range s.afterStop {
-				if err := fn(); err != nil {
-					s.DefaultLogger.Error("after stop func", zapl.Error(err))
-				}
-			}
-		}
-		// Context is canceled, giving application time to shut down gracefully.
-		s.DefaultLogger.Info("Graceful shutdown initiated, waiting to terminate...")
-		s.DefaultLogger.Info("Graceful shutdown config", zapl.String("gs.duration", s.envVars.GracefulShutdownTimeout.String()))
-		time.Sleep(s.envVars.GracefulShutdownTimeout)
-
-		// Probably deadlock, forcing shutdown.
-		s.DefaultLogger.Fatal("Service terminated gracefully!")
-		return nil
-	})
+	s.AddGracefulShutdown(ctx)
 
 	if len(s.customGoroutines) > 0 {
 		for _, fn := range s.customGoroutines {
@@ -367,6 +348,13 @@ func (s *Server) Start() error {
 				s.DefaultLogger.Error("after start func", zapl.Error(err))
 			}
 		}
+	}
+
+	for _, server := range s.servers {
+		srv := server
+		g.Go(func() error {
+			return srv()
+		})
 	}
 
 	s.validateServers()
@@ -427,6 +415,7 @@ func WithGinServer(cfg gin.Config) func(*Server) {
 		default:
 			s.GinServer = cfg.NewDefaultGin()
 		}
+		s.AddGinServer()
 	}
 }
 
@@ -436,6 +425,58 @@ func WithChiServer(cfg chi.Config) func(*Server) {
 		srv, tp := cfg.NewDefaultChi(s.RootCtx, s.DefaultLogger, s.ServerName, s.ServerVersion, s.envVars.OTELJaegerHost, s.envVars.DebugHeaders)
 		s.ChiServer = srv
 		s.tp = tp
+		s.AddChiServer()
+	}
+}
+
+// WithChiAndGRPCServer provides chi http and grpc servers and runs them after Start.
+func WithChiAndGRPCServer(cfg chi.Config, gcfg grpc.Config) func(*Server) {
+	return func(s *Server) {
+		srv, tp := cfg.NewDefaultChi(s.RootCtx, s.DefaultLogger, s.ServerName, s.ServerVersion, s.envVars.OTELJaegerHost, s.envVars.DebugHeaders)
+		s.ChiServer = srv
+		s.tp = tp
+
+		switch {
+		case cfg.Default:
+			s.GRPCServer = gcfg.NewDefaultGRPCServer()
+		default:
+			s.GRPCServer = gcfg.NewDefaultGRPCServer()
+		}
+
+		if s.parallelMode {
+			s.AddChiAndGRPCMixedServer()
+		} else {
+			s.AddGRPCServer()
+			s.AddChiServer()
+		}
+	}
+}
+
+// WithGinAndGRPCServer provides gin http and grpc servers and runs them after Start.
+func WithGinAndGRPCServer(cfg gin.Config, gcfg grpc.Config) func(*Server) {
+	return func(s *Server) {
+		switch {
+		case cfg.Blank:
+			s.GinServer = cfg.NewBlankGin()
+		case cfg.Default:
+			s.GinServer = cfg.NewDefaultGin()
+		default:
+			s.GinServer = cfg.NewDefaultGin()
+		}
+
+		switch {
+		case cfg.Default:
+			s.GRPCServer = gcfg.NewDefaultGRPCServer()
+		default:
+			s.GRPCServer = gcfg.NewDefaultGRPCServer()
+		}
+
+		if s.parallelMode {
+			s.AddGinAndGRPCMixedServer()
+		} else {
+			s.AddGRPCServer()
+			s.AddGinServer()
+		}
 	}
 }
 
@@ -448,6 +489,7 @@ func WithGRPCServer(cfg grpc.Config) func(*Server) {
 		default:
 			s.GRPCServer = cfg.NewDefaultGRPCServer()
 		}
+		s.AddGRPCServer()
 	}
 }
 

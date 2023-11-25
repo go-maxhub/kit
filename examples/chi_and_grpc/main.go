@@ -32,10 +32,9 @@ func main() {
 
 	svc := kit.New(
 		kit.WithServerName("shuttle"),
-		kit.WithChiServer(chi.Config{
+		kit.WithChiAndGRPCServer(chi.Config{
 			Default: true,
-		}),
-		kit.WithGRPCServer(grpc.Config{Default: true}),
+		}, grpc.Config{Default: true}),
 		kit.WithParallelMode(),
 		kit.WithCustomGoroutines([]func() error{testGoroutine}),
 	)
