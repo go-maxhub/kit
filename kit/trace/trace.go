@@ -98,7 +98,6 @@ func InitChiTracerProvider(ctx context.Context, lg *zap.Logger, serverName, serv
 		resource.WithTelemetrySDK(),
 		resource.WithContainer(),
 		resource.WithHost(),
-		resource.WithHostID(),
 		resource.WithOS(),
 		resource.WithProcess(),
 		resource.WithProcessCommandArgs(),
