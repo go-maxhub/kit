@@ -42,7 +42,21 @@ func main() {
 	})
 	svc.ChiServer.Get("/test", func(w http.ResponseWriter, r *http.Request) {
 		ng.Add(1)
-		_, err := w.Write([]byte("welcome"))
+		_, err := w.Write([]byte("welcome test"))
+		if err != nil {
+			return
+		}
+	})
+	svc.ChiServer.Get("/", func(w http.ResponseWriter, r *http.Request) {
+		ng.Add(1)
+		_, err := w.Write([]byte("welcome root"))
+		if err != nil {
+			return
+		}
+	})
+	svc.ChiServer.Get("/test/mcs1235/poof/pid3424", func(w http.ResponseWriter, r *http.Request) {
+		ng.Add(1)
+		_, err := w.Write([]byte("welcome poof"))
 		if err != nil {
 			return
 		}

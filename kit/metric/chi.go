@@ -3,6 +3,7 @@ package metric
 import (
 	"fmt"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -27,6 +28,7 @@ type Middleware struct {
 	reqs    *prometheus.CounterVec
 	latency *prometheus.HistogramVec
 	params  *prometheus.CounterVec
+	query   *prometheus.CounterVec
 }
 
 // NewMiddleware constructs a Middleware that records basic request metric.
@@ -66,7 +68,27 @@ func NewMiddleware(name string, buckets ...float64) func(next http.Handler) http
 		[]string{"param_name", "param_value"},
 	)
 	prometheus.MustRegister(m.params)
+
+	m.query = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "query_path_params",
+			Help: "All query path params",
+		},
+		[]string{"query_value"},
+	)
+	prometheus.MustRegister(m.query)
 	return m.handler
+}
+
+func getQueryPathParams(path string) []string {
+	var res []string
+	p := strings.Split(path, "/")
+	for _, v := range p {
+		if regexp.MustCompile(`\d`).MatchString(v) {
+			res = append(res, v)
+		}
+	}
+	return res
 }
 
 func (c Middleware) handler(next http.Handler) http.Handler {
@@ -78,6 +100,12 @@ func (c Middleware) handler(next http.Handler) http.Handler {
 		c.latency.WithLabelValues(fmt.Sprintf("%d", ww.Status()), r.Method, r.URL.Path).Observe(float64(time.Since(start).Nanoseconds()) / 1000000)
 		for k, v := range r.URL.Query() {
 			c.params.WithLabelValues(k, strings.Join(v, " ")).Inc()
+		}
+		qpp := getQueryPathParams(r.URL.Path)
+		if len(qpp) > 0 {
+			for _, v := range getQueryPathParams(r.URL.Path) {
+				c.query.WithLabelValues(v).Inc()
+			}
 		}
 	}
 	return http.HandlerFunc(fn)
