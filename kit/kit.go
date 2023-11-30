@@ -3,8 +3,6 @@ package kit
 import (
 	"context"
 	"errors"
-	"github.com/go-chi/chi/v5/middleware"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"log"
 	"net"
 	"net/http"
@@ -14,7 +12,9 @@ import (
 	"time"
 
 	"github.com/felixge/fgprof"
+	"github.com/go-chi/chi/v5/middleware"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 	"golang.org/x/sync/errgroup"

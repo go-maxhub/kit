@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5/middleware"
-	kit "github.com/go-maxhub/kit/kit"
+	"github.com/go-maxhub/kit/kit"
 	"github.com/go-maxhub/kit/kit/servers/chi"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
