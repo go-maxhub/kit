@@ -1,0 +1,32 @@
+- url: http://localhost:8080/test
+  assert_code: 200
+  method: GET
+  headers:
+    - name: Content-Type
+      value: application/json
+    - name: X-Test-Header
+      value: test
+    - name: X-Auth-Token
+      value: token
+- url: http://localhost:8080/test/poof/woof
+  assert_code: 200
+  method: GET
+  headers:
+    - name: Content-Type
+      value: application/json
+    - name: X-Test-Header
+      value: test
+    - name: X-Auth-Token
+      value: token
+- url: http://localhost:8080/pool
+  assert_code: 200
+  method: GET
+  headers:
+    - name: Content-Type
+      value: application/json
+    - name: X-Test-Header
+      value: test
+    - name: X-Auth-Token
+      value: token
+
+

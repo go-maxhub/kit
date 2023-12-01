@@ -3,6 +3,8 @@ package kit
 import (
 	"context"
 	"errors"
+	"flag"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -85,6 +87,9 @@ type Server struct {
 
 	promRegistry   *prometheus.Registry
 	PromCollectors []prometheus.Collector
+
+	// End-to-end tests
+	tests e2eTests
 
 	// Before and After funcs.
 	beforeStart []func() error
@@ -247,6 +252,14 @@ func (s *Server) AddGinServer() {
 	s.servers = append(s.servers, gs)
 }
 
+func (s *Server) AddEndToEndTests(configPath string) {
+	eet, err := loadTestConfig(configPath)
+	if err != nil {
+		s.DefaultLogger.Error("load end-to-end tests config", zapl.Error(err))
+	}
+	s.tests = *eet
+}
+
 func (s *Server) AddChiAndGRPCMixedServer() {
 	mh := mixHTTPAndGRPC(s.ChiServer, s.GRPCServer)
 	http2Server := &http2.Server{}
@@ -285,8 +298,9 @@ func (s *Server) AddGinAndGRPCMixedServer() {
 	s.servers = append(s.servers, ms)
 }
 
-// Start runs servers with provided options.
-func (s *Server) Start() error {
+func (s *Server) startServer() error {
+	mode := flag.String("mode", "default", "execute end-to-end tests and shutdown service after")
+	flag.Parse()
 
 	s.defaultConfig()
 
@@ -358,7 +372,31 @@ func (s *Server) Start() error {
 	}
 
 	s.validateServers()
+
+	if *mode == "e2e" {
+		// hack preventing server no initialized
+		time.Sleep(5 * time.Second)
+
+		s.DefaultLogger.Info("Running end-to-end tests...")
+		s.DefaultLogger.Info(fmt.Sprintf("Found %d end-to-end tests to execute", len(s.tests)))
+
+		for _, eet := range s.tests {
+			s.runTest(eet)
+		}
+
+		s.DefaultLogger.Info("All end-to-end passed successfully!")
+		os.Exit(0)
+	}
 	return g.Wait()
+}
+
+// Start runs servers with provided options.
+func (s *Server) Start() error {
+	err := s.startServer()
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 // WithServerName sets name of service.
@@ -369,6 +407,18 @@ func WithServerName(name string) func(*Server) {
 			panic("kit name evaluated, but not defined")
 		default:
 			s.ServerName = name
+		}
+	}
+}
+
+// WithEndToEndTests sets name of service.
+func WithEndToEndTests(configPath string) func(*Server) {
+	return func(s *Server) {
+		switch {
+		case configPath == "":
+			panic("path to config name evaluated, but not defined")
+		default:
+			s.AddEndToEndTests(configPath)
 		}
 	}
 }

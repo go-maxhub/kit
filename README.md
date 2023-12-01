@@ -12,6 +12,7 @@ Friendly framework with high-performance and strong-extensibility for building m
 - autoinstrumented with prometheus metrics handler on 0.0.0.0:9090/metrics
 - can easily register any prometheus collectors with same-named option
 - just use promauto.* to register any metrics you like, it will work immediately
+- e2e mode for testing your service
 
 ## Environment variables to use
 
@@ -35,3 +36,11 @@ Friendly framework with high-performance and strong-extensibility for building m
 | Fgprof address      | 0.0.0.0:6060   | /debug/fgprof      |
 | Pprof address       | 0.0.0.0:8080   | /debug/pprof/*     |
 | Prometheus address  | 0.0.0.0:9090   | /metrics           |
+
+## E2E testing mode
+* set **WithEndToEndTests** option and provide path to e2e.yaml file
+* use flag `-mode=e2e` to run e2e tests with your binary
+* see example in **examples/chi_with_e2e** folder
+* if you don't set requests timeout, it will be 10s by default
+* default timeout before tests are run is 5s, it's time to give your server wake up and init all connections
+* Timeout, Headers, Body of requests are optional

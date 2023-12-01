@@ -29,6 +29,7 @@ type Middleware struct {
 	latency *prometheus.HistogramVec
 	params  *prometheus.CounterVec
 	query   *prometheus.CounterVec
+	mttr    prometheus.Gauge
 }
 
 // NewMiddleware constructs a Middleware that records basic request metric.
@@ -77,6 +78,13 @@ func NewMiddleware(name string, buckets ...float64) func(next http.Handler) http
 		[]string{"query_value"},
 	)
 	prometheus.MustRegister(m.query)
+
+	m.mttr = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name:        "mttr",
+		Help:        "Mean Time to Recovery",
+		ConstLabels: prometheus.Labels{"service": name},
+	})
+	prometheus.MustRegister(m.mttr)
 	return m.handler
 }
 
@@ -107,6 +115,7 @@ func (c Middleware) handler(next http.Handler) http.Handler {
 				c.query.WithLabelValues(v).Inc()
 			}
 		}
+		c.mttr.SetToCurrentTime()
 	}
 	return http.HandlerFunc(fn)
 }
