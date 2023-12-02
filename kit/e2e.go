@@ -64,11 +64,13 @@ func (s *Server) runTest(t e2eTest) {
 			log.Fatal(err)
 		}
 	}
+
 	client := &http.Client{}
 	req, err := http.NewRequestWithContext(ctx, t.Method, t.URL, &buf)
 	if err != nil {
 		s.DefaultLogger.Error("create http request", zap.Error(err))
 	}
+
 	resp, err := client.Do(req)
 	if err != nil {
 		s.DefaultLogger.Error("send http request", zap.Error(err))

@@ -60,7 +60,7 @@ func TraceMiddleware(lg *zap.Logger, m *metric.Metrics, tp *sdktrace.TracerProvi
 			ctx = context.WithValue(ctx, key, logger{base: lg})
 
 			start := time.Now()
-			w := &writerProxy{ResponseWriter: rw}
+			w := &writerProxy{ResponseWriter: rw, status: http.StatusOK}
 
 			ctx = p.Extract(ctx, propagation.HeaderCarrier(r.Header))
 			ctx, span := t.Start(
@@ -105,6 +105,7 @@ func TraceMiddleware(lg *zap.Logger, m *metric.Metrics, tp *sdktrace.TracerProvi
 					zap.String("method", r.Method),
 					zap.String("user_agent.os.full_name", r.Header.Get("User-Agent")),
 					zap.Float64("latency_ms", float64(timeEnd.Sub(start).Nanoseconds())/nanosecInMillisec),
+					zap.Int("status_code", w.status),
 				}
 
 				if debugHeaders {
