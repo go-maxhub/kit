@@ -21,7 +21,7 @@ type e2eHeader struct {
 	Value string `yaml:"value"`
 }
 
-type e2eTests []e2eTest
+type E2eTests []e2eTest
 
 type e2eTest struct {
 	URL        string        `yaml:"url"`
@@ -32,12 +32,12 @@ type e2eTest struct {
 	Body       string        `yaml:"body,omitempty"`
 }
 
-func loadTestConfig(configPath string) (*e2eTests, error) {
+func loadTestConfig(configPath string) (*E2eTests, error) {
 	yamlFile, err := os.ReadFile(configPath)
 	if err != nil {
 		return nil, fmt.Errorf("read test configuration file: %v", err)
 	}
-	var et e2eTests
+	var et E2eTests
 	if err = yaml.Unmarshal(yamlFile, &et); err != nil {
 		return nil, fmt.Errorf("unmarshall test configuration: %v", err)
 	}
@@ -76,7 +76,7 @@ func (s *Server) runTest(t e2eTest) {
 		s.DefaultLogger.Error("send http request", zap.Error(err))
 	}
 	defer func(Body io.ReadCloser) {
-		err := Body.Close()
+		err = Body.Close()
 		if err != nil {
 			s.DefaultLogger.Error("close http body", zap.Error(err))
 		}
@@ -97,4 +97,13 @@ func (s *Server) runTest(t e2eTest) {
 		s.DefaultLogger.Error("Test failed", zap.String("url", t.URL), zap.String("method", t.Method), zap.String("body", buf.String()), zap.Int("status_code", resp.StatusCode), zap.Error(err), zap.String("response_body", bodyString))
 		os.Exit(1)
 	}
+}
+
+// addEndToEndTests adds end-to-end tests functionality to server.
+func (s *Server) addEndToEndTests(configPath string) {
+	eet, err := loadTestConfig(configPath)
+	if err != nil {
+		s.DefaultLogger.Error("load end-to-end tests config", zap.Error(err))
+	}
+	s.tests = *eet
 }

@@ -10,13 +10,11 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"strings"
 	"time"
 
 	"github.com/felixge/fgprof"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 	"golang.org/x/sync/errgroup"
@@ -28,11 +26,6 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	zapl "go.uber.org/zap"
 	grpccore "google.golang.org/grpc"
-
-	"github.com/go-maxhub/kit/kit/metric"
-	"github.com/go-maxhub/kit/kit/servers/chi"
-	"github.com/go-maxhub/kit/kit/servers/gin"
-	"github.com/go-maxhub/kit/kit/servers/grpc"
 )
 
 const (
@@ -44,24 +37,13 @@ const (
 	fgprofUrl         = "/debug/fgprof"
 )
 
-// mixHTTPAndGRPC configures mixed http and grpc handler.
-func mixHTTPAndGRPC(httpHandler http.Handler, grpcHandler *grpccore.Server) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.ProtoMajor == 2 && strings.HasPrefix(r.Header.Get("content-type"), grpcHeader) {
-			grpcHandler.ServeHTTP(w, r)
-			return
-		}
-		httpHandler.ServeHTTP(w, r)
-	})
-}
-
 // Server describes all services configurations, must be executed with Start.
 type Server struct {
 	// !ATTENTION! Options must be set before Start.
 	ServerName    string
 	ServerVersion string
 
-	envVars Env
+	envVars env
 
 	RootCtx context.Context
 
@@ -82,14 +64,14 @@ type Server struct {
 	// Loggers.
 	DefaultLogger *zapl.Logger
 
-	// Metrics
+	// otelMetrics
 	fgprofServer http.Handler
 
 	promRegistry   *prometheus.Registry
 	PromCollectors []prometheus.Collector
 
 	// End-to-end tests
-	tests e2eTests
+	tests E2eTests
 
 	// Before and After funcs.
 	beforeStart []func() error
@@ -101,10 +83,11 @@ type Server struct {
 	customGoroutines []func() error
 }
 
-// New is base constructor function to create service with options, but won't start it without Start.
+// New is base constructor function to create service with options, but won't work without Start.
 func New(options ...func(*Server)) *Server {
 	srv := &Server{}
-	srv.promRegistry = metric.InitPrometheusConfiguration()
+
+	srv.promRegistry = initPrometheusConfiguration()
 	srv.RootCtx = context.Background()
 	srv.DefaultLogger = initDefaultZapLogger()
 
@@ -149,7 +132,7 @@ func (s *Server) defaultConfig() {
 // validateServers validate servers to prevent usage of nil client.
 func (s *Server) validateServers() {
 	if s.ChiServer == nil {
-		s.DefaultLogger.Info("!ATTENTION! chi kit is not initialized")
+		s.DefaultLogger.Info("!ATTENTION! metrics kit is not initialized")
 	}
 	if s.GRPCServer == nil {
 		s.DefaultLogger.Info("!ATTENTION! grpc kit is not initialized")
@@ -159,7 +142,8 @@ func (s *Server) validateServers() {
 	}
 }
 
-func (s *Server) AddGracefulShutdown(ctx context.Context) {
+// addGracefulShutdown adds graceful shutdown to server.
+func (s *Server) addGracefulShutdown(ctx context.Context) {
 	gs := func() error {
 		// Guaranteed way to kill application.
 		if len(s.beforeStop) > 0 {
@@ -190,58 +174,20 @@ func (s *Server) AddGracefulShutdown(ctx context.Context) {
 	s.servers = append(s.servers, gs)
 }
 
-func (s *Server) AddFgprofServer() {
-	s.DefaultLogger.Info("Starting fgprof endpoint...")
-	http.DefaultServeMux.Handle(fgprofUrl, s.fgprofServer)
-	fs := func() error {
-		if err := http.ListenAndServe(defaultFgrpofAddr, nil); err != nil {
-			s.DefaultLogger.Error("init fgprof kit", zapl.Error(err))
-		}
-		return nil
-	}
-	s.servers = append(s.servers, fs)
-}
-
-func (s *Server) AddPrometheusServer() {
-	s.DefaultLogger.Info("Starting prometheus metric endpoint...")
-	s.promRegistry.MustRegister(s.PromCollectors...)
-	http.Handle("/metrics", promhttp.Handler())
-	ps := func() error {
-		if err := http.ListenAndServe(defaultPromAddr, nil); err != nil {
-			s.DefaultLogger.Error("init prometheus kit", zapl.Error(err))
-		}
-		return nil
-	}
-	s.servers = append(s.servers, ps)
-}
-
-func (s *Server) AddChiServer() {
+// addChiServer adds metrics engine to server.
+func (s *Server) addChiServer() {
 	cs := func() error {
 		defer s.DefaultLogger.Info("Server stopped.")
 		if err := http.ListenAndServe(s.httpAddr, s.ChiServer); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			s.DefaultLogger.Fatal("start chi kit", zapl.Error(err))
+			s.DefaultLogger.Fatal("start metrics kit", zapl.Error(err))
 		}
 		return nil
 	}
 	s.servers = append(s.servers, cs)
 }
 
-func (s *Server) AddGRPCServer() {
-	lis, err := net.Listen("tcp", s.grpcAddr)
-	if err != nil {
-		panic(err)
-	}
-	grpcs := func() error {
-		defer s.DefaultLogger.Info("Server stopped.")
-		if err = s.GRPCServer.Serve(lis); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			s.DefaultLogger.Fatal("start grpc kit", zapl.Error(err))
-		}
-		return nil
-	}
-	s.servers = append(s.servers, grpcs)
-}
-
-func (s *Server) AddGinServer() {
+// addGinServer adds gin engine to server.
+func (s *Server) addGinServer() {
 	gs := func() error {
 		defer s.DefaultLogger.Info("Server stopped.")
 		if err := s.GinServer.Run(s.httpAddr); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -252,15 +198,8 @@ func (s *Server) AddGinServer() {
 	s.servers = append(s.servers, gs)
 }
 
-func (s *Server) AddEndToEndTests(configPath string) {
-	eet, err := loadTestConfig(configPath)
-	if err != nil {
-		s.DefaultLogger.Error("load end-to-end tests config", zapl.Error(err))
-	}
-	s.tests = *eet
-}
-
-func (s *Server) AddChiAndGRPCMixedServer() {
+// addChiAndGRPCMixedServer adds metrics and grpc mixed engines to server.
+func (s *Server) addChiAndGRPCMixedServer() {
 	mh := mixHTTPAndGRPC(s.ChiServer, s.GRPCServer)
 	http2Server := &http2.Server{}
 	http1Server := &http.Server{Handler: h2c.NewHandler(mh, http2Server)}
@@ -272,14 +211,15 @@ func (s *Server) AddChiAndGRPCMixedServer() {
 		defer s.DefaultLogger.Info("Server stopped.")
 
 		if err = http1Server.Serve(lis); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			s.DefaultLogger.Fatal("start chi and grpc kit", zapl.Error(err))
+			s.DefaultLogger.Fatal("start metrics and grpc kit", zapl.Error(err))
 		}
 		return nil
 	}
 	s.servers = append(s.servers, ms)
 }
 
-func (s *Server) AddGinAndGRPCMixedServer() {
+// addGinAndGRPCMixedServer adds gin and grpc mixed engines to server.
+func (s *Server) addGinAndGRPCMixedServer() {
 	grpc_health_v1.RegisterHealthServer(s.GRPCServer, health.NewServer())
 	mh := mixHTTPAndGRPC(s.GinServer, s.GRPCServer)
 	http2Server := &http2.Server{}
@@ -298,6 +238,7 @@ func (s *Server) AddGinAndGRPCMixedServer() {
 	s.servers = append(s.servers, ms)
 }
 
+// startServer starts all servers.
 func (s *Server) startServer() error {
 	mode := flag.String("mode", "default", "execute end-to-end tests and shutdown service after")
 	flag.Parse()
@@ -305,6 +246,8 @@ func (s *Server) startServer() error {
 	s.defaultConfig()
 
 	s.DefaultLogger.Info("Starting service...")
+
+	s.addPyroscopeExporter()
 
 	if len(s.beforeStart) > 0 {
 		for _, fn := range s.beforeStart {
@@ -330,7 +273,7 @@ func (s *Server) startServer() error {
 		}
 	}()
 
-	s.AddPrometheusServer()
+	s.addPrometheusServer()
 
 	s.DefaultLogger.Info("Initialized with ports",
 		zapl.String("http.httpAddr", s.httpAddr),
@@ -340,7 +283,7 @@ func (s *Server) startServer() error {
 	)
 
 	if s.envVars.FgprofEnable {
-		s.AddFgprofServer()
+		s.addFgprofServer()
 	}
 
 	if s.envVars.PprofEnable {
@@ -348,7 +291,7 @@ func (s *Server) startServer() error {
 		s.ChiServer.Mount("/debug", middleware.Profiler())
 	}
 
-	s.AddGracefulShutdown(ctx)
+	s.addGracefulShutdown(ctx)
 
 	if len(s.customGoroutines) > 0 {
 		for _, fn := range s.customGoroutines {
@@ -390,190 +333,12 @@ func (s *Server) startServer() error {
 	return g.Wait()
 }
 
-// Start runs servers with provided options.
+// Start starts all engine.
+// Start runs engine with provided options.
 func (s *Server) Start() error {
 	err := s.startServer()
 	if err != nil {
 		return err
 	}
 	return nil
-}
-
-// WithServerName sets name of service.
-func WithServerName(name string) func(*Server) {
-	return func(s *Server) {
-		switch {
-		case name == "":
-			panic("kit name evaluated, but not defined")
-		default:
-			s.ServerName = name
-		}
-	}
-}
-
-// WithEndToEndTests sets name of service.
-func WithEndToEndTests(configPath string) func(*Server) {
-	return func(s *Server) {
-		switch {
-		case configPath == "":
-			panic("path to config name evaluated, but not defined")
-		default:
-			s.AddEndToEndTests(configPath)
-		}
-	}
-}
-
-// WithHTTPServerPort sets provided port to http kit.
-func WithHTTPServerPort(port string) func(*Server) {
-	return func(s *Server) {
-		switch {
-		case port == "":
-			panic("http port evaluated, but not defined")
-		default:
-			s.httpAddr = "0.0.0.0:" + port
-		}
-	}
-}
-
-// WithGRPCServerPort sets provided port to grpc kit.
-func WithGRPCServerPort(port string) func(*Server) {
-	return func(s *Server) {
-		switch {
-		case port == "":
-			panic("grpc port evaluated, but not defined")
-		default:
-			s.grpcAddr = "0.0.0.0:" + port
-		}
-	}
-}
-
-// WithParallelMode sets http and grpc servers to bind on one port and segregate requests by headers.
-func WithParallelMode() func(*Server) {
-	return func(s *Server) {
-		s.parallelMode = true
-	}
-}
-
-// WithGinServer provides gin http kit and runs it after Start.
-func WithGinServer(cfg gin.Config) func(*Server) {
-	return func(s *Server) {
-		switch {
-		case cfg.Blank:
-			s.GinServer = cfg.NewBlankGin()
-		case cfg.Default:
-			s.GinServer = cfg.NewDefaultGin()
-		default:
-			s.GinServer = cfg.NewDefaultGin()
-		}
-		s.AddGinServer()
-	}
-}
-
-// WithChiServer provides chi http kit and runs it after Start.
-func WithChiServer(cfg chi.Config) func(*Server) {
-	return func(s *Server) {
-		srv, tp := cfg.NewDefaultChi(s.RootCtx, s.DefaultLogger, s.ServerName, s.ServerVersion, s.envVars.OTELJaegerHost, s.envVars.DebugHeaders)
-		s.ChiServer = srv
-		s.tp = tp
-		s.AddChiServer()
-	}
-}
-
-// WithChiAndGRPCServer provides chi http and grpc servers and runs them after Start.
-func WithChiAndGRPCServer(cfg chi.Config, gcfg grpc.Config) func(*Server) {
-	return func(s *Server) {
-		srv, tp := cfg.NewDefaultChi(s.RootCtx, s.DefaultLogger, s.ServerName, s.ServerVersion, s.envVars.OTELJaegerHost, s.envVars.DebugHeaders)
-		s.ChiServer = srv
-		s.tp = tp
-
-		switch {
-		case cfg.Default:
-			s.GRPCServer = gcfg.NewDefaultGRPCServer()
-		default:
-			s.GRPCServer = gcfg.NewDefaultGRPCServer()
-		}
-
-		if s.parallelMode {
-			s.AddChiAndGRPCMixedServer()
-		} else {
-			s.AddGRPCServer()
-			s.AddChiServer()
-		}
-	}
-}
-
-// WithGinAndGRPCServer provides gin http and grpc servers and runs them after Start.
-func WithGinAndGRPCServer(cfg gin.Config, gcfg grpc.Config) func(*Server) {
-	return func(s *Server) {
-		switch {
-		case cfg.Blank:
-			s.GinServer = cfg.NewBlankGin()
-		case cfg.Default:
-			s.GinServer = cfg.NewDefaultGin()
-		default:
-			s.GinServer = cfg.NewDefaultGin()
-		}
-
-		switch {
-		case cfg.Default:
-			s.GRPCServer = gcfg.NewDefaultGRPCServer()
-		default:
-			s.GRPCServer = gcfg.NewDefaultGRPCServer()
-		}
-
-		if s.parallelMode {
-			s.AddGinAndGRPCMixedServer()
-		} else {
-			s.AddGRPCServer()
-			s.AddGinServer()
-		}
-	}
-}
-
-// WithGRPCServer provides grpc kit and runs it after Start.
-func WithGRPCServer(cfg grpc.Config) func(*Server) {
-	return func(s *Server) {
-		switch {
-		case cfg.Default:
-			s.GRPCServer = cfg.NewDefaultGRPCServer()
-		default:
-			s.GRPCServer = cfg.NewDefaultGRPCServer()
-		}
-		s.AddGRPCServer()
-	}
-}
-
-// WithBeforeStart executes functions before servers start.
-func WithBeforeStart(funcs []func() error) func(*Server) {
-	return func(s *Server) {
-		s.beforeStart = funcs
-	}
-}
-
-// WithAfterStart executes functions after servers start.
-func WithAfterStart(funcs []func() error) func(*Server) {
-	return func(s *Server) {
-		s.afterStart = funcs
-	}
-}
-
-// WithAfterStop executes functions after servers stop.
-func WithAfterStop(funcs []func() error) func(*Server) {
-	return func(s *Server) {
-		s.afterStop = funcs
-	}
-}
-
-// WithBeforeStop executes functions before servers stop.
-func WithBeforeStop(funcs []func() error) func(*Server) {
-	return func(s *Server) {
-		s.beforeStop = funcs
-	}
-}
-
-// WithCustomGoroutines adds goroutines to main errgroup instance of kit.
-func WithCustomGoroutines(funcs []func() error) func(*Server) {
-	return func(s *Server) {
-		s.customGoroutines = funcs
-	}
 }

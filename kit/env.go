@@ -8,7 +8,7 @@ import (
 	"go.uber.org/zap"
 )
 
-type Env struct {
+type env struct {
 	ServerVersion string `env:"KIT_SERVER_VERSION" envDefault:"0.0.0"`
 
 	GracefulShutdownTimeout time.Duration `env:"KIT_GRACEFUL_SHUTDOWN" envDefault:"5s"`
@@ -20,10 +20,12 @@ type Env struct {
 	PprofEnable bool `env:"KIT_METRICS_PPROF" envDefault:"false"`
 
 	DebugHeaders bool `env:"KIT_DEBUG_HEADERS" envDefault:"false"`
+
+	PyroscopeHost string `env:"KIT_METRICS_PYROSCOPE_HOST" envDefault:"http://localhost:4040"`
 }
 
-func initEnvVars(lg *zap.Logger) (Env, error) {
-	envVars := Env{}
+func initEnvVars(lg *zap.Logger) (env, error) {
+	envVars := env{}
 	if err := envParser.Parse(&envVars); err != nil {
 		lg.Error("parse env vars", zap.Error(err))
 		return envVars, errors.Wrap(err, "parse env vars")

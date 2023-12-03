@@ -1,4 +1,4 @@
-package trace
+package kit
 
 import (
 	"context"
@@ -31,7 +31,7 @@ func (s *opentelemetryTracerProviderStore) HasExporter() bool {
 	return len(s.exporters) > 0
 }
 
-// RegisterResource adds a Resource for registration with open telemetry global trace provider
+// RegisterResource adds a otelResource for registration with open telemetry global trace provider
 func (s *opentelemetryTracerProviderStore) RegisterResource(res *resource.Resource) {
 	s.res = res
 }
@@ -70,7 +70,7 @@ func newOTELTracerProviderStore() *opentelemetryTracerProviderStore {
 	return &opentelemetryTracerProviderStore{exps, nil, nil}
 }
 
-func InitChiTracerProvider(ctx context.Context, lg *zap.Logger, serverName, serverVersion, jaegerHost string) *sdktrace.TracerProvider {
+func initTracerProvider(ctx context.Context, lg *zap.Logger, serverName, serverVersion, jaegerHost string) *sdktrace.TracerProvider {
 	var (
 		client  otlptrace.Client
 		tpStore *opentelemetryTracerProviderStore

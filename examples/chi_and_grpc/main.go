@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"github.com/go-maxhub/kit/examples/chi_and_grpc/proto"
 	"net/http"
 	"time"
 
@@ -12,9 +11,9 @@ import (
 	zapl "go.uber.org/zap"
 	"google.golang.org/grpc/reflection"
 
-	kit "github.com/go-maxhub/kit/kit"
-	"github.com/go-maxhub/kit/kit/servers/chi"
-	"github.com/go-maxhub/kit/kit/servers/grpc"
+	"github.com/go-maxhub/kit/examples/chi_and_grpc/proto"
+
+	"github.com/go-maxhub/kit/kit"
 )
 
 type server struct {
@@ -32,9 +31,9 @@ func main() {
 
 	svc := kit.New(
 		kit.WithServerName("shuttle"),
-		kit.WithChiAndGRPCServer(chi.Config{
+		kit.WithChiAndGRPCServer(kit.ChiConfig{
 			Default: true,
-		}, grpc.Config{Default: true}),
+		}, kit.GRPCConfig{Default: true}),
 		kit.WithParallelMode(),
 		kit.WithCustomGoroutines([]func() error{testGoroutine}),
 	)

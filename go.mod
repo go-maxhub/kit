@@ -10,6 +10,7 @@ require (
 	github.com/go-chi/chi/v5 v5.0.10
 	github.com/go-faster/errors v0.6.1
 	github.com/go-logr/zapr v1.2.4
+	github.com/grafana/pyroscope-go v1.0.4
 	github.com/prometheus/client_golang v1.17.0
 	github.com/riandyrn/otelchi v0.5.1
 	go.opentelemetry.io/contrib/propagators/autoprop v0.43.0
@@ -48,6 +49,7 @@ require (
 	github.com/goccy/go-json v0.10.2 // indirect
 	github.com/golang/protobuf v1.5.3 // indirect
 	github.com/google/pprof v0.0.0-20211214055906-6f57359322fd // indirect
+	github.com/grafana/pyroscope-go/godeltaprof v0.1.4 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.16.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.4 // indirect

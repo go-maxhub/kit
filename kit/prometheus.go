@@ -1,4 +1,4 @@
-package metric
+package kit
 
 import (
 	"fmt"
@@ -9,22 +9,24 @@ import (
 
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"go.uber.org/zap"
 )
 
-// Default bucket values for histogram metric.
+// Default bucket values for histogram metrics.
 var (
 	dflBuckets = []float64{300, 1200, 5000}
 )
 
-// Constant metric names used throughout the middleware.
+// Constant metrics names used throughout the middleware.
 const (
 	reqsName    = "requests_total"
 	latencyName = "request_duration_milliseconds"
 )
 
-// Middleware encapsulates the counters and histograms for monitoring
+// prometheusMiddleware encapsulates the counters and histograms for monitoring
 // the number of requests, their latency, and the response size.
-type Middleware struct {
+type prometheusMiddleware struct {
 	reqs    *prometheus.CounterVec
 	latency *prometheus.HistogramVec
 	params  *prometheus.CounterVec
@@ -32,11 +34,11 @@ type Middleware struct {
 	mttr    prometheus.Gauge
 }
 
-// NewMiddleware constructs a Middleware that records basic request metric.
+// newMiddleware constructs a defaultMiddleware that records basic request metrics.
 // Name parameter identifies the service, and buckets customizes latency histograms.
 // It wraps the next HTTP handler, instrumenting how requests are processed.
-func NewMiddleware(name string, buckets ...float64) func(next http.Handler) http.Handler {
-	var m Middleware
+func newMiddleware(name string, buckets ...float64) func(next http.Handler) http.Handler {
+	var m prometheusMiddleware
 	m.reqs = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name:        reqsName,
@@ -99,7 +101,7 @@ func getQueryPathParams(path string) []string {
 	return res
 }
 
-func (c Middleware) handler(next http.Handler) http.Handler {
+func (c prometheusMiddleware) handler(next http.Handler) http.Handler {
 	fn := func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
@@ -118,4 +120,18 @@ func (c Middleware) handler(next http.Handler) http.Handler {
 		c.mttr.SetToCurrentTime()
 	}
 	return http.HandlerFunc(fn)
+}
+
+// addPrometheusServer adds prometheus endpoint to server.
+func (s *Server) addPrometheusServer() {
+	s.DefaultLogger.Info("Starting prometheus metrics endpoint...")
+	s.promRegistry.MustRegister(s.PromCollectors...)
+	http.Handle("/metrics", promhttp.Handler())
+	ps := func() error {
+		if err := http.ListenAndServe(defaultPromAddr, nil); err != nil {
+			s.DefaultLogger.Error("init prometheus kit", zap.Error(err))
+		}
+		return nil
+	}
+	s.servers = append(s.servers, ps)
 }

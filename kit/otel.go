@@ -1,4 +1,4 @@
-package metric
+package kit
 
 import (
 	"context"
@@ -53,7 +53,7 @@ func newResource() *sdkresource.Resource {
 	return r
 }
 
-func InitPrometheusConfiguration() *prometheus.Registry {
+func initPrometheusConfiguration() *prometheus.Registry {
 	exporter, err := promexporter.New()
 	if err != nil {
 		panic(err)
@@ -78,7 +78,7 @@ func InitPrometheusConfiguration() *prometheus.Registry {
 	return reg
 }
 
-type Metrics struct {
+type otelMetrics struct {
 	lg *zap.Logger
 
 	tracerProvider trace.TracerProvider
@@ -88,7 +88,7 @@ type Metrics struct {
 	propagator propagation.TextMapPropagator
 }
 
-func (m *Metrics) TextMapPropagator() propagation.TextMapPropagator {
+func (m *otelMetrics) TextMapPropagator() propagation.TextMapPropagator {
 	return m.propagator
 }
 
@@ -100,7 +100,7 @@ func (z zapErrorHandler) Handle(err error) {
 	z.lg.Error("Error", zap.Error(err))
 }
 
-func Resource(ctx context.Context) (*resource.Resource, error) {
+func otelResource(ctx context.Context) (*resource.Resource, error) {
 	opts := []resource.Option{
 		resource.WithProcessRuntimeDescription(),
 		resource.WithProcessRuntimeVersion(),
@@ -114,37 +114,26 @@ func Resource(ctx context.Context) (*resource.Resource, error) {
 	return resource.Merge(resource.Default(), r)
 }
 
-func NewMetrics(
+func newMetrics(
 	ctx context.Context,
 	lg *zap.Logger,
-) (*Metrics, error) {
+) (*otelMetrics, error) {
 	{
 		logger := lg.Named("kit.otel")
 		otel.SetLogger(zapr.NewLogger(logger))
 		otel.SetErrorHandler(zapErrorHandler{lg: logger})
 	}
 
-	res, err := Resource(ctx)
+	res, err := otelResource(ctx)
 	if err != nil {
 		return nil, errors.Wrap(err, "resource")
 	}
 
-	m := &Metrics{
+	m := &otelMetrics{
 		lg:       lg,
 		resource: res,
 	}
-	{
-		//provider, stop, err := autotracer.NewTracerProvider(ctx,
-		//	include(tracerOptions,
-		//		autotracer.WithResource(res),
-		//	)...,
-		//)
-		//if err != nil {
-		//	return nil, errors.Wrap(err, "tracer provider")
-		//}
-		//m.tracerProvider = provider
-		//m.registerShutdown("tracer", stop)
-	}
+
 	m.propagator = autoprop.NewTextMapPropagator()
 	m.tracerProvider = oteltrace.NewTracerProvider()
 	m.meterProvider = otel.GetMeterProvider()
@@ -153,6 +142,6 @@ func NewMetrics(
 	otel.SetTracerProvider(m.tracerProvider)
 	otel.SetTextMapPropagator(m.TextMapPropagator())
 
-	lg.Info("Metrics initialized")
+	lg.Info("otelMetrics initialized")
 	return m, nil
 }

@@ -1,29 +1,27 @@
-package chi
+package kit
 
 import (
 	"context"
+	"net/http"
+	"time"
+
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/riandyrn/otelchi"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/propagation"
-	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	semconv "go.opentelemetry.io/otel/semconv/v1.12.0"
-	oteltrace "go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/semconv/v1.12.0"
+	trace2 "go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
-	"net/http"
-	"time"
-
-	"github.com/go-maxhub/kit/kit/metric"
-	"github.com/go-maxhub/kit/kit/trace"
 )
 
-type Config struct {
+type ChiConfig struct {
 	Default bool
 }
 
-type Middleware func(next http.Handler) http.Handler
+type defaultMiddleware func(next http.Handler) http.Handler
 
 type writerProxy struct {
 	http.ResponseWriter
@@ -46,7 +44,7 @@ func (w *writerProxy) WriteHeader(statusCode int) {
 	w.status = statusCode
 }
 
-func TraceMiddleware(lg *zap.Logger, m *metric.Metrics, tp *sdktrace.TracerProvider, debugHeaders bool) Middleware {
+func TraceMiddleware(lg *zap.Logger, m *otelMetrics, tp *trace.TracerProvider, debugHeaders bool) defaultMiddleware {
 	const nanosecInMillisec = float64(time.Millisecond)
 
 	var key struct{}
@@ -66,13 +64,13 @@ func TraceMiddleware(lg *zap.Logger, m *metric.Metrics, tp *sdktrace.TracerProvi
 			ctx, span := t.Start(
 				ctx,
 				"HTTP",
-				oteltrace.WithSpanKind(oteltrace.SpanKindServer),
-				oteltrace.WithAttributes(semconv.HTTPServerAttributesFromHTTPRequest(
+				trace2.WithSpanKind(trace2.SpanKindServer),
+				trace2.WithAttributes(semconv.HTTPServerAttributesFromHTTPRequest(
 					"kit", "HTTP", r)...))
 
 			defer span.End()
 
-			if sc := oteltrace.SpanContextFromContext(ctx); sc.IsValid() {
+			if sc := trace2.SpanContextFromContext(ctx); sc.IsValid() {
 				w.Header().Set("trace-id", sc.TraceID().String())
 				w.Header().Set("span-id", sc.SpanID().String())
 			}
@@ -87,7 +85,7 @@ func TraceMiddleware(lg *zap.Logger, m *metric.Metrics, tp *sdktrace.TracerProvi
 						w.Header().Set("Message", "Internal kit error: panic recovered")
 					}
 					span.AddEvent("Panic recovered",
-						oteltrace.WithStackTrace(false),
+						trace2.WithStackTrace(false),
 					)
 					span.SetStatus(codes.Error, "Panic recovered")
 				}
@@ -97,8 +95,8 @@ func TraceMiddleware(lg *zap.Logger, m *metric.Metrics, tp *sdktrace.TracerProvi
 				zFields := []zap.Field{
 					zap.String("type", "access"),
 					zap.String("request_id", middleware.GetReqID(r.Context())),
-					zap.String("trace_id", oteltrace.SpanContextFromContext(ctx).TraceID().String()),
-					zap.String("span_id", oteltrace.SpanContextFromContext(ctx).SpanID().String()),
+					zap.String("trace_id", trace2.SpanContextFromContext(ctx).TraceID().String()),
+					zap.String("span_id", trace2.SpanContextFromContext(ctx).SpanID().String()),
 					zap.String("remote_ip", r.RemoteAddr),
 					zap.String("url.full", r.URL.Path),
 					zap.String("proto", r.Proto),
@@ -126,10 +124,10 @@ func TraceMiddleware(lg *zap.Logger, m *metric.Metrics, tp *sdktrace.TracerProvi
 	}
 }
 
-func (c *Config) NewDefaultChi(ctx context.Context, lg *zap.Logger, serverName, serverVersion, jaegerHost string, debugHeaders bool) (*chi.Mux, *sdktrace.TracerProvider) {
-	tp := trace.InitChiTracerProvider(ctx, lg, serverName, serverVersion, jaegerHost)
+func (c *ChiConfig) NewDefaultChi(ctx context.Context, lg *zap.Logger, serverName, serverVersion, jaegerHost string, debugHeaders bool) (*chi.Mux, *trace.TracerProvider) {
+	tp := initTracerProvider(ctx, lg, serverName, serverVersion, jaegerHost)
 
-	m, err := metric.NewMetrics(ctx, lg.Named("kit.metrics"))
+	m, err := newMetrics(ctx, lg.Named("kit.metrics"))
 	if err != nil {
 		lg.Fatal("init metrics", zap.Error(err))
 	}
@@ -137,7 +135,7 @@ func (c *Config) NewDefaultChi(ctx context.Context, lg *zap.Logger, serverName, 
 	cl := chi.NewRouter()
 
 	cl.Use(
-		metric.NewMiddleware(serverName),
+		newMiddleware(serverName),
 		middleware.RequestID,
 		middleware.Timeout(60*time.Second),
 		middleware.RealIP,
