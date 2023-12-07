@@ -55,8 +55,8 @@ func (s *Server) runTest(t e2eTest) {
 		to = 10 * time.Second
 	}
 
-	ctx, cncl := context.WithTimeout(context.Background(), to)
-	defer cncl()
+	ctx, cancel := context.WithTimeout(context.Background(), to)
+	defer cancel()
 
 	if &t.Body != nil {
 		err := json.NewEncoder(&buf).Encode(t.Body)
@@ -94,8 +94,7 @@ func (s *Server) runTest(t e2eTest) {
 		s.DefaultLogger.Info("Test passed", zap.String("url", t.URL), zap.String("method", t.Method), zap.String("body", buf.String()))
 	default:
 		color.Red("Test failed")
-		s.DefaultLogger.Error("Test failed", zap.String("url", t.URL), zap.String("method", t.Method), zap.String("body", buf.String()), zap.Int("status_code", resp.StatusCode), zap.Error(err), zap.String("response_body", bodyString))
-		os.Exit(1)
+		s.DefaultLogger.Fatal("Test failed", zap.String("url", t.URL), zap.String("method", t.Method), zap.String("body", buf.String()), zap.Int("status_code", resp.StatusCode), zap.Error(err), zap.String("response_body", bodyString))
 	}
 }
 
